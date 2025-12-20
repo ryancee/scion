@@ -30,6 +30,26 @@ func (r *AppleContainerRuntime) RunDetached(ctx context.Context, config RunConfi
 		args = append(args, "-v", fmt.Sprintf("%s:/workspace", config.Workspace))
 	}
 
+	// Propagate Auth
+	if config.Auth.GeminiAPIKey != "" {
+		args = append(args, "-e", fmt.Sprintf("GEMINI_API_KEY=%s", config.Auth.GeminiAPIKey))
+	}
+	if config.Auth.GoogleAPIKey != "" {
+		args = append(args, "-e", fmt.Sprintf("GOOGLE_API_KEY=%s", config.Auth.GoogleAPIKey))
+	}
+	if config.Auth.VertexAPIKey != "" {
+		args = append(args, "-e", fmt.Sprintf("VERTEX_API_KEY=%s", config.Auth.VertexAPIKey))
+	}
+	if config.Auth.GoogleCloudProject != "" {
+		args = append(args, "-e", fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", config.Auth.GoogleCloudProject))
+	}
+	if config.Auth.GoogleAppCredentials != "" {
+		// Mount ADC file
+		containerPath := "/home/gemini/.config/gcp/application_default_credentials.json"
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", config.Auth.GoogleAppCredentials, containerPath))
+		args = append(args, "-e", fmt.Sprintf("GOOGLE_APPLICATION_CREDENTIALS=%s", containerPath))
+	}
+
 	for _, e := range config.Env {
 		args = append(args, "-e", e)
 	}

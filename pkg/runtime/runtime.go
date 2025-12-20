@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+
+	"github.com/ptone/gswarm/pkg/config"
 )
 
 type AgentInfo struct {
@@ -12,12 +14,13 @@ type AgentInfo struct {
 }
 
 type RunConfig struct {
-	Name        string
-	Image       string
-	HomeDir     string
-	Workspace   string
-	Env         []string
-	Labels      map[string]string
+	Name      string
+	Image     string
+	HomeDir   string
+	Workspace string
+	Env       []string
+	Labels    map[string]string
+	Auth      config.AuthConfig
 }
 
 type Runtime interface {

@@ -30,7 +30,7 @@ This document breaks down the implementation of `gswarm` into independent stages
 - [ ] Implement `gswarm start` (v1) (**In Progress**)
     - [x] Select template.
     - [x] Copy template to `.gswarm/agents/<name>/home`.
-    - [ ] Implement Environment & Credential Propagation (API keys, gcloud config). (**Pending** - *Design in .design/auth.md*)
+    - [x] Implement Environment & Credential Propagation (API keys, gcloud config). (**Completed**)
     - [x] Launch container with home directory mounted to `/home/gemini`.
 - [x] Implement basic ID management to prevent name collisions (**Completed**)
 - [ ] Verify agent has unique identity and persistent history (**Pending**)

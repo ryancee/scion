@@ -7,7 +7,8 @@ import (
 )
 
 type GeminiSettings struct {
-	Tools struct {
+	ApiKey string `json:"apiKey"`
+	Tools  struct {
 		Sandbox interface{} `json:"sandbox"`
 	} `json:"tools"`
 }
