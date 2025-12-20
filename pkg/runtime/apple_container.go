@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -63,14 +64,6 @@ func (r *AppleContainerRuntime) Stop(ctx context.Context, id string) error {
 
 	return nil
 }
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os/exec"
-	"strings"
-)
 
 type containerListOutput struct {
 	ID     string            `json:"id"`
