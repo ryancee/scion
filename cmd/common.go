@@ -233,6 +233,10 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		resolvedImage = "gemini-cli-sandbox"
 	}
 
+	if os.Getenv("SCION_DEBUG") != "" {
+		fmt.Printf("Debug: resolved container image='%s'\n", resolvedImage)
+	}
+
 	// 3. Propagate credentials
 	var auth config.AuthConfig
 	if !noAuth {
@@ -447,30 +451,102 @@ func GetAgent(agentName string, templateName string, agentImage string, grovePat
 
 	
 
-		mergedCfg := &config.ScionConfig{}
+			mergedCfg := &config.ScionConfig{}
 
-		for _, tpl := range chain {
+	
 
-			tplCfg, err := tpl.LoadConfig()
+			for _, tpl := range chain {
 
-			if err == nil {
+	
 
-				mergedCfg = config.MergeScionConfig(mergedCfg, tplCfg)
+				tplCfg, err := tpl.LoadConfig()
+
+	
+
+				if err == nil {
+
+	
+
+					if os.Getenv("SCION_DEBUG") != "" {
+
+	
+
+						fmt.Printf("Debug: merging template '%s', image='%s'\n", tpl.Name, tplCfg.Image)
+
+	
+
+					}
+
+	
+
+					mergedCfg = config.MergeScionConfig(mergedCfg, tplCfg)
+
+	
+
+				}
+
+	
 
 			}
+
+	
+
+		
+
+	
+
+			if os.Getenv("SCION_DEBUG") != "" {
+
+	
+
+				fmt.Printf("Debug: agent config image='%s'\n", agentCfg.Image)
+
+	
+
+			}
+
+	
+
+		
+
+	
+
+			// Finally merge the agent's specific config on top
+
+	
+
+			finalCfg := config.MergeScionConfig(mergedCfg, agentCfg)
+
+	
+
+		
+
+	
+
+			if os.Getenv("SCION_DEBUG") != "" {
+
+	
+
+				fmt.Printf("Debug: final merged config image='%s'\n", finalCfg.Image)
+
+	
+
+			}
+
+	
+
+		
+
+	
+
+			return agentDir, agentHome, agentWorkspace, finalCfg, nil
+
+	
 
 		}
 
 	
 
-		// Finally merge the agent's specific config on top
-
-		finalCfg := config.MergeScionConfig(mergedCfg, agentCfg)
-
-	
-
-		return agentDir, agentHome, agentWorkspace, finalCfg, nil
-
-	}
+		
 
 	
