@@ -116,6 +116,30 @@ Delete an agent (removes the container, agent directory, and git worktree):
 scion delete coder
 ```
 
+### 7. Manage Templates
+
+Templates serve as blueprints for new agents. You can manage them using the `templates` subcommand.
+
+- **List templates**:
+  ```bash
+  scion templates list
+  ```
+- **Create a new template**:
+  ```bash
+  scion templates create my-special-tpl
+  ```
+- **Delete a template**:
+  ```bash
+  scion templates delete my-special-tpl
+  ```
+- **Update the default template**:
+  ```bash
+  scion templates update-default
+  ```
+  *(Note: This is useful for restoring or syncing the default template files with the latest defaults from the Scion binary.)*
+
+Use the `--global` flag with these commands to target the global template store in `~/.scion/templates`.
+
 ## Configuration
 
 Scion uses a `settings.json` file located in `~/.gemini/settings.json` for global configuration, such as API keys and auth preferences.
