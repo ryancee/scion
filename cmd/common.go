@@ -499,8 +499,18 @@ func GetAgent(agentName string, templateName string, agentImage string, grovePat
 	agentHome := filepath.Join(agentDir, "home")
 	agentWorkspace := filepath.Join(agentDir, "workspace")
 
+	// Load settings for default template
+	settings, _ := config.LoadSettings(projectDir)
+	defaultTemplate := "gemini"
+	if settings != nil && settings.DefaultTemplate != "" {
+		defaultTemplate = settings.DefaultTemplate
+	}
+
 	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
-		fmt.Printf("Provisioning agent '%s'...\n", agentName)
+		if templateName == "" {
+			templateName = defaultTemplate
+		}
+		fmt.Printf("Provisioning agent '%s' using template '%s'...\n", agentName, templateName)
 		home, ws, cfg, err := ProvisionAgent(agentName, templateName, agentImage, grovePath, optionalStatus)
 		return agentDir, home, ws, cfg, err
 	}
@@ -518,7 +528,7 @@ func GetAgent(agentName string, templateName string, agentImage string, grovePat
 	// The agent's scion.json acts as the final override
 
 	// Determine the template name from the agent's config or default
-	effectiveTemplate := "gemini"
+	effectiveTemplate := defaultTemplate
 	if agentCfg.Template != "" {
 		effectiveTemplate = agentCfg.Template
 	}

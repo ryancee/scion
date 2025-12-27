@@ -32,6 +32,14 @@ func (t *Template) LoadConfig() (*api.ScionConfig, error) {
 }
 
 func FindTemplate(name string) (*Template, error) {
+	// 0. Check if name is an absolute path
+	if filepath.IsAbs(name) {
+		if info, err := os.Stat(name); err == nil && info.IsDir() {
+			return &Template{Name: filepath.Base(name), Path: name}, nil
+		}
+		return nil, fmt.Errorf("template path %s not found or not a directory", name)
+	}
+
 	// 1. Check project-local templates
 	projectTemplatesDir, err := GetProjectTemplatesDir()
 	if err == nil {

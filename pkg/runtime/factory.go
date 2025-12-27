@@ -40,14 +40,14 @@ func GetRuntime(grovePath string) Runtime {
 
 	if sandbox == "local" {
 		if runtime.GOOS == "darwin" {
-			if _, err := exec.LookPath("container"); err == nil {
-				sandbox = "container"
-			} else {
-				sandbox = "docker"
-			}
+			sandbox = "container"
 		} else {
 			sandbox = "docker"
 		}
+	}
+
+	if sandbox == "remote" {
+		sandbox = "kubernetes"
 	}
 
 	switch sandbox {

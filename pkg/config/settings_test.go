@@ -31,10 +31,14 @@ func TestLoadSettings(t *testing.T) {
 	if s.DefaultRuntime != "docker" {
 		t.Errorf("expected default runtime 'docker', got '%s'", s.DefaultRuntime)
 	}
+	if s.DefaultTemplate != "gemini" {
+		t.Errorf("expected default template 'gemini', got '%s'", s.DefaultTemplate)
+	}
 
 	// 2. Test Global overrides
 	globalSettings := `{
 		"default_runtime": "kubernetes",
+		"default_template": "claude",
 		"kubernetes": {
 			"default_namespace": "scion-global"
 		}
@@ -53,6 +57,9 @@ func TestLoadSettings(t *testing.T) {
 	}
 	if s.DefaultRuntime != "kubernetes" {
 		t.Errorf("expected global override runtime 'kubernetes', got '%s'", s.DefaultRuntime)
+	}
+	if s.DefaultTemplate != "claude" {
+		t.Errorf("expected global override template 'claude', got '%s'", s.DefaultTemplate)
 	}
 	if s.Kubernetes.DefaultNamespace != "scion-global" {
 		t.Errorf("expected global override namespace 'scion-global', got '%s'", s.Kubernetes.DefaultNamespace)
@@ -117,6 +124,16 @@ func TestUpdateSetting(t *testing.T) {
 		t.Errorf("expected file to contain default_runtime: kubernetes, got %s", string(content))
 	}
 
+	// Update default_template
+	err = UpdateSetting(groveDir, "default_template", "my-template", false)
+	if err != nil {
+		t.Fatalf("UpdateSetting default_template failed: %v", err)
+	}
+	content, _ = os.ReadFile(filepath.Join(groveDir, ".scion", "settings.json"))
+	if !strings.Contains(string(content), `"default_template": "my-template"`) {
+		t.Errorf("expected file to contain default_template: my-template, got %s", string(content))
+	}
+
 	// Update global setting
 	err = UpdateSetting(groveDir, "docker.host", "tcp://localhost:2375", true)
 	if err != nil {
@@ -142,6 +159,7 @@ func TestValidateRuntime(t *testing.T) {
 		{"kubernetes", true},
 		{"local", true},
 		{"container", true},
+		{"remote", true},
 		{"invalid", false},
 		{"", false},
 	}

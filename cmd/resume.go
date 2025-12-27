@@ -22,7 +22,7 @@ the agent will look for a prompt.md file in its root directory.`,
 
 func init() {
 	rootCmd.AddCommand(resumeCmd)
-	resumeCmd.Flags().StringVarP(&templateName, "type", "t", "default", "Template to use")
+	resumeCmd.Flags().StringVarP(&templateName, "type", "t", "", "Template to use")
 	resumeCmd.Flags().StringVarP(&agentImage, "image", "i", "", "Container image to use (overrides template)")
 	resumeCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication propagation")
 	resumeCmd.Flags().BoolVarP(&attach, "attach", "a", false, "Attach to the agent TTY after starting")

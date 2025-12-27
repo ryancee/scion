@@ -49,7 +49,7 @@ func SeedTemplateDir(templateDir string, templateName string, harnessProvider st
 	if templateName != "" && templateName != "default" {
 		scionJSON = strings.Replace(scionJSON, `"template": "default"`, fmt.Sprintf(`"template": %q`, templateName), 1)
 	}
-	if harnessProvider != "" {
+	if harnessProvider != "" && !strings.Contains(scionJSON, "\"harness_provider\"") {
 		// Insert harness_provider before unix_username
 		providerLine := fmt.Sprintf("  \"harness_provider\": %q,\n", harnessProvider)
 		scionJSON = strings.Replace(scionJSON, "\"unix_username\"", providerLine+"  \"unix_username\"", 1)
@@ -116,11 +116,10 @@ func InitProject(targetDir string) error {
 	}
 
 	// Create grove-level settings file if it doesn't exist
-	settingsDir := filepath.Join(projectDir, ".scion")
-	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create settings directory: %w", err)
 	}
-	settingsPath := filepath.Join(settingsDir, "settings.json")
+	settingsPath := filepath.Join(projectDir, "settings.json")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		// Seed with default settings
 		defaultSettings, err := embedsFS.ReadFile("embeds/default_settings.json")

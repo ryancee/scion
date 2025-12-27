@@ -20,11 +20,12 @@ fi
 
 echo "=== Cleaning up specific scion directories ==="
 if [ -d "${TEST_DIR}/.scion" ]; then
-    # Only remove agents and default template
+    # Only remove agents, default templates, and settings
     rm -rf "${TEST_DIR}/.scion/agents"
     rm -rf "${TEST_DIR}/.scion/templates/claude"
     rm -rf "${TEST_DIR}/.scion/templates/gemini"
-    echo "Removed .scion/agents and .scion/templates/default"
+    rm -f "${TEST_DIR}/.scion/settings.json"
+    echo "Removed .scion/agents, templates, and settings.json"
 fi
 
 echo "=== Cleanup Complete ==="

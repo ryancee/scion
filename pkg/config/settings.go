@@ -17,9 +17,10 @@ type DockerSettings struct {
 }
 
 type Settings struct {
-	DefaultRuntime string             `json:"default_runtime,omitempty"`
-	Kubernetes     KubernetesSettings `json:"kubernetes,omitempty"`
-	Docker         DockerSettings     `json:"docker,omitempty"`
+	DefaultRuntime  string             `json:"default_runtime,omitempty"`
+	DefaultTemplate string             `json:"default_template,omitempty"`
+	Kubernetes      KubernetesSettings `json:"kubernetes,omitempty"`
+	Docker          DockerSettings     `json:"docker,omitempty"`
 }
 
 // LoadSettings loads and merges settings from the hierarchy.
@@ -27,7 +28,8 @@ type Settings struct {
 func LoadSettings(grovePath string) (*Settings, error) {
 	// 1. Start with App Defaults
 	settings := &Settings{
-		DefaultRuntime: "docker",
+		DefaultRuntime:  "docker",
+		DefaultTemplate: "gemini",
 	}
 
 	// 2. Merge Global (~/.scion/settings.json)
@@ -71,6 +73,9 @@ func mergeSettingsFromFile(base *Settings, path string) error {
 	// Manual merge of top-level fields
 	if override.DefaultRuntime != "" {
 		base.DefaultRuntime = override.DefaultRuntime
+	}
+	if override.DefaultTemplate != "" {
+		base.DefaultTemplate = override.DefaultTemplate
 	}
 
 	if override.Kubernetes.DefaultContext != "" {
@@ -151,6 +156,8 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 			return err
 		}
 		current.DefaultRuntime = value
+	case "default_template":
+		current.DefaultTemplate = value
 	case "kubernetes.default_context":
 		current.Kubernetes.DefaultContext = value
 	case "kubernetes.default_namespace":
@@ -176,6 +183,8 @@ func GetSettingValue(s *Settings, key string) (string, error) {
 	switch key {
 	case "default_runtime":
 		return s.DefaultRuntime, nil
+	case "default_template":
+		return s.DefaultTemplate, nil
 	case "kubernetes.default_context":
 		return s.Kubernetes.DefaultContext, nil
 	case "kubernetes.default_namespace":
@@ -190,6 +199,7 @@ func GetSettingValue(s *Settings, key string) (string, error) {
 func GetSettingsMap(s *Settings) map[string]string {
 	m := make(map[string]string)
 	m["default_runtime"] = s.DefaultRuntime
+	m["default_template"] = s.DefaultTemplate
 	m["kubernetes.default_context"] = s.Kubernetes.DefaultContext
 	m["kubernetes.default_namespace"] = s.Kubernetes.DefaultNamespace
 	m["docker.host"] = s.Docker.Host
@@ -198,9 +208,9 @@ func GetSettingsMap(s *Settings) map[string]string {
 
 func validateRuntime(r string) error {
 	switch r {
-	case "docker", "kubernetes", "local", "container":
+	case "docker", "kubernetes", "local", "container", "remote":
 		return nil
 	default:
-		return fmt.Errorf("invalid runtime '%s'. Supported values: docker, kubernetes, local", r)
+		return fmt.Errorf("invalid runtime '%s'. Supported values: docker, kubernetes, local, remote", r)
 	}
 }
