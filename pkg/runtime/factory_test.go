@@ -13,7 +13,7 @@ func TestGetRuntime(t *testing.T) {
 
 	t.Run("EnvVar_Container", func(t *testing.T) {
 		os.Setenv("GEMINI_SANDBOX", "container")
-		r := GetRuntime()
+		r := GetRuntime("")
 		if _, ok := r.(*AppleContainerRuntime); !ok {
 			t.Errorf("expected *AppleContainerRuntime, got %T", r)
 		}
@@ -21,7 +21,7 @@ func TestGetRuntime(t *testing.T) {
 
 	t.Run("EnvVar_Docker", func(t *testing.T) {
 		os.Setenv("GEMINI_SANDBOX", "docker")
-		r := GetRuntime()
+		r := GetRuntime("")
 		if _, ok := r.(*DockerRuntime); !ok {
 			t.Errorf("expected *DockerRuntime, got %T", r)
 		}
@@ -31,7 +31,7 @@ func TestGetRuntime(t *testing.T) {
 		os.Unsetenv("GEMINI_SANDBOX")
 		// This depends on what's available in the environment running the test.
 		// We just want to ensure it doesn't panic and returns a valid runtime.
-		r := GetRuntime()
+		r := GetRuntime("")
 		if r == nil {
 			t.Error("expected a runtime instance, got nil")
 		}
@@ -59,7 +59,7 @@ func TestGetRuntime(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		r := GetRuntime()
+		r := GetRuntime("")
 		if _, ok := r.(*AppleContainerRuntime); !ok {
 			t.Errorf("expected *AppleContainerRuntime from settings, got %T", r)
 		}

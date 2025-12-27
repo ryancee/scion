@@ -17,7 +17,7 @@ var deleteCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
-		rt := runtime.GetRuntime()
+		rt := runtime.GetRuntime(grovePath)
 
 		fmt.Printf("Deleting agent '%s'...\n", agentName)
 		

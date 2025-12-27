@@ -17,7 +17,7 @@ var logsCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
-		rt := runtime.GetRuntime()
+		rt := runtime.GetRuntime(grovePath)
 
 		// 1. Try to find the agent to get its grove path
 		agents, err := rt.List(context.Background(), map[string]string{

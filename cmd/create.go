@@ -19,7 +19,7 @@ The agent will be created from a template.`,
 		agentName := args[0]
 
 		// Check if container already exists
-		rt := runtime.GetRuntime()
+		rt := runtime.GetRuntime(grovePath)
 		agents, err := rt.List(context.Background(), nil)
 		if err == nil {
 			for _, a := range agents {

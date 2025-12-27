@@ -159,7 +159,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 	task := strings.Join(args[1:], " ")
 
 	// 0. Check if container already exists
-	rt := runtime.GetRuntime()
+	rt := runtime.GetRuntime(grovePath)
 	agents, err := rt.List(context.Background(), nil)
 	if err == nil {
 		for _, a := range agents {
@@ -252,7 +252,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 	}
 
 	// 4. Launch container
-	rt = runtime.GetRuntime()
+	rt = runtime.GetRuntime(grovePath)
 
 	detached := true
 	useTmux := false

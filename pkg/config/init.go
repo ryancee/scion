@@ -105,6 +105,29 @@ func InitProject(targetDir string) error {
 		}
 	}
 
+	// Create grove-level settings file if it doesn't exist
+	settingsDir := filepath.Join(projectDir, ".scion")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create settings directory: %w", err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		// Seed with empty/commented settings
+		emptySettings := `{
+  "default_runtime": "docker",
+  "kubernetes": {
+    "default_context": "",
+    "default_namespace": ""
+  },
+  "docker": {
+    "host": ""
+  }
+}`
+		if err := os.WriteFile(settingsPath, []byte(emptySettings), 0644); err != nil {
+			return fmt.Errorf("failed to seed settings.json: %w", err)
+		}
+	}
+
 	templatesDir := filepath.Join(projectDir, "templates")
 	agentsDir := filepath.Join(projectDir, "agents")
 
@@ -123,6 +146,24 @@ func InitGlobal() error {
 	globalDir, err := GetGlobalDir()
 	if err != nil {
 		return err
+	}
+
+	// Create global settings file if it doesn't exist
+	settingsPath := filepath.Join(globalDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		emptySettings := `{
+  "default_runtime": "docker",
+  "kubernetes": {
+    "default_context": "",
+    "default_namespace": ""
+  },
+  "docker": {
+    "host": ""
+  }
+}`
+		if err := os.WriteFile(settingsPath, []byte(emptySettings), 0644); err != nil {
+			return fmt.Errorf("failed to seed global settings.json: %w", err)
+		}
 	}
 
 	templatesDir := filepath.Join(globalDir, "templates")
