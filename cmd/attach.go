@@ -18,7 +18,7 @@ If the agent was started with tmux support, this will attach to the tmux session
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
-		rt := runtime.GetRuntime()
+		rt := runtime.GetRuntime(grovePath)
 
 		// Try to resolve grove info for better error messages
 		projectDir, _ := config.GetResolvedProjectDir(grovePath)

@@ -115,6 +115,23 @@ func InitProject(targetDir string) error {
 		}
 	}
 
+	// Create grove-level settings file if it doesn't exist
+	settingsDir := filepath.Join(projectDir, ".scion")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create settings directory: %w", err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		// Seed with default settings
+		defaultSettings, err := embedsFS.ReadFile("embeds/default_settings.json")
+		if err != nil {
+			return fmt.Errorf("failed to read default settings: %w", err)
+		}
+		if err := os.WriteFile(settingsPath, defaultSettings, 0644); err != nil {
+			return fmt.Errorf("failed to seed settings.json: %w", err)
+		}
+	}
+
 	templatesDir := filepath.Join(projectDir, "templates")
 	agentsDir := filepath.Join(projectDir, "agents")
 
@@ -133,6 +150,18 @@ func InitGlobal() error {
 	globalDir, err := GetGlobalDir()
 	if err != nil {
 		return err
+	}
+
+	// Create global settings file if it doesn't exist
+	settingsPath := filepath.Join(globalDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		defaultSettings, err := embedsFS.ReadFile("embeds/default_settings.json")
+		if err != nil {
+			return fmt.Errorf("failed to read default settings: %w", err)
+		}
+		if err := os.WriteFile(settingsPath, defaultSettings, 0644); err != nil {
+			return fmt.Errorf("failed to seed global settings.json: %w", err)
+		}
 	}
 
 	templatesDir := filepath.Join(globalDir, "templates")

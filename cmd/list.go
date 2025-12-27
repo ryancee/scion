@@ -24,7 +24,7 @@ var listCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List running scion agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rt := runtime.GetRuntime()
+		rt := runtime.GetRuntime(grovePath)
 		filters := map[string]string{
 			"scion.agent": "true",
 		}

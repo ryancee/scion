@@ -1,0 +1,10 @@
+{
+  "default_runtime": "docker",
+  "kubernetes": {
+    "default_context": "",
+    "default_namespace": ""
+  },
+  "docker": {
+    "host": ""
+  }
+}
