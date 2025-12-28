@@ -20,7 +20,7 @@ func NewDockerRuntime() *DockerRuntime {
 	}
 }
 
-func (r *DockerRuntime) Run(ctx context.Context, config api.RunConfig) (string, error) {
+func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	args, err := buildCommonRunArgs(config)
 	if err != nil {
 		return "", err

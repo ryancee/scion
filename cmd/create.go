@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ptone/scion-agent/pkg/agent"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -18,8 +20,18 @@ The agent will be created from a template.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 
-		// Check if container already exists
 		rt := runtime.GetRuntime(grovePath, agentRuntime)
+		mgr := agent.NewManager(rt)
+
+		opts := api.StartOptions{
+			Name:      agentName,
+			Template:  templateName,
+			Image:     agentImage,
+			GrovePath: grovePath,
+		}
+
+		// Check if container already exists
+
 		agents, err := rt.List(context.Background(), nil)
 		if err == nil {
 			for _, a := range agents {
@@ -30,7 +42,7 @@ The agent will be created from a template.`,
 			}
 		}
 
-		_, _, _, _, err = GetAgent(agentName, templateName, agentImage, grovePath, "created")
+		_, err = mgr.Provision(context.Background(), opts)
 		if err != nil {
 			return err
 		}

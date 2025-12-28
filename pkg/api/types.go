@@ -76,16 +76,8 @@ type AuthConfig struct {
 	AnthropicAPIKey      string
 }
 
-// Harness interface moved from pkg/harness to avoid cycles
-type Harness interface {
-	Name() string
-	DiscoverAuth(agentHome string) AuthConfig
-	GetEnv(agentName string, unixUsername string, model string, auth AuthConfig) map[string]string
-	GetCommand(task string, resume bool) []string
-	PropagateFiles(homeDir, unixUsername string, auth AuthConfig) error
-	GetVolumes(unixUsername string, auth AuthConfig) []VolumeMount
-	DefaultConfigDir() string
-	HasSystemPrompt() bool
+type AuthProvider interface {
+	GetAuthConfig(context.Context) (AuthConfig, error)
 }
 
 type AgentInfo struct {
@@ -101,33 +93,22 @@ type AgentInfo struct {
 	Image       string
 }
 
-type RunConfig struct {
-	Name         string
-	Template     string
-	UnixUsername string
-	Image        string
-	HomeDir      string
-	Workspace    string
-	RepoRoot     string
-	Env          []string
-	Volumes      []VolumeMount
-	Labels       map[string]string
-	Annotations  map[string]string
-	Auth         AuthConfig
-	Harness      Harness
-	UseTmux      bool
-	Model        string
-	Task         string
-	Resume       bool
+type StartOptions struct {
+	Name      string
+	Task      string
+	Template  string
+	Image     string
+	GrovePath string
+	Env       map[string]string
+	Detached  bool
+	Resume    bool
+	Model     string
+	Auth      AuthProvider
 }
 
-type Runtime interface {
-	Run(ctx context.Context, config RunConfig) (string, error)
-	Stop(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, labelFilter map[string]string) ([]AgentInfo, error)
-	GetLogs(ctx context.Context, id string) (string, error)
-	Attach(ctx context.Context, id string) error
-	ImageExists(ctx context.Context, image string) (bool, error)
-	PullImage(ctx context.Context, image string) error
+type StatusEvent struct {
+	AgentID   string    `json:"agent_id"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message,omitempty"`
+	Timestamp string    `json:"timestamp"`
 }

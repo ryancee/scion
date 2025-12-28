@@ -9,12 +9,11 @@ import (
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/k8s"
-	runtimek8s "github.com/ptone/scion-agent/pkg/runtime/kubernetes"
 )
 
 // GetRuntime returns the appropriate Runtime implementation based on environment,
 // agent configuration (if available via GetAgentSettings), and grove/global settings.
-func GetRuntime(grovePath string, runtimeOverride string) api.Runtime {
+func GetRuntime(grovePath string, runtimeOverride string) Runtime {
 	var runtimeType string
 
 	// We resolve the project dir from grovePath to load settings correctly
@@ -50,7 +49,7 @@ func GetRuntime(grovePath string, runtimeOverride string) api.Runtime {
 		if err != nil {
 			return &ErrorRuntime{Err: err}
 		}
-		rt := runtimek8s.NewKubernetesRuntime(k8sClient)
+		rt := NewKubernetesRuntime(k8sClient)
 		if s != nil && s.Kubernetes.DefaultNamespace != "" {
 			rt.DefaultNamespace = s.Kubernetes.DefaultNamespace
 		}
@@ -78,7 +77,7 @@ type ErrorRuntime struct {
 	Err error
 }
 
-func (e *ErrorRuntime) Run(ctx context.Context, config api.RunConfig) (string, error) {
+func (e *ErrorRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	return "", e.Err
 }
 

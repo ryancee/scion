@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/ptone/scion-agent/pkg/runtime/kubernetes"
 )
 
 func TestGetRuntime(t *testing.T) {
@@ -64,8 +62,8 @@ func TestGetRuntime(t *testing.T) {
 
 		r := GetRuntime("", "")
 		// Remote resolves to kubernetes
-		if _, ok := r.(*kubernetes.KubernetesRuntime); !ok {
-			t.Errorf("expected *kubernetes.KubernetesRuntime, got %T", r)
+		if _, ok := r.(*KubernetesRuntime); !ok {
+			t.Errorf("expected *KubernetesRuntime, got %T", r)
 		}
 	})
 

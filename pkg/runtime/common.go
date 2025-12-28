@@ -12,7 +12,7 @@ import (
 )
 
 // buildCommonRunArgs constructs the common arguments for 'run' command across different runtimes.
-func buildCommonRunArgs(config api.RunConfig) ([]string, error) {
+func buildCommonRunArgs(config RunConfig) ([]string, error) {
 	args := []string{"run", "-d", "-i"}
 	addArg := func(flag string, values ...string) {
 		for _, v := range values {

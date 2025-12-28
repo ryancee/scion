@@ -7,7 +7,7 @@ import (
 )
 
 type MockRuntime struct {
-	RunFunc         func(ctx context.Context, config api.RunConfig) (string, error)
+	RunFunc         func(ctx context.Context, config RunConfig) (string, error)
 	StopFunc        func(ctx context.Context, id string) error
 	DeleteFunc      func(ctx context.Context, id string) error
 	ListFunc        func(ctx context.Context, labelFilter map[string]string) ([]api.AgentInfo, error)
@@ -16,7 +16,7 @@ type MockRuntime struct {
 	ImageExistsFunc func(ctx context.Context, image string) (bool, error)
 }
 
-func (m *MockRuntime) Run(ctx context.Context, config api.RunConfig) (string, error) {
+func (m *MockRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	if m.RunFunc != nil {
 		return m.RunFunc(ctx, config)
 	}

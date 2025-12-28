@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -18,19 +19,18 @@ var stopCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 		rt := runtime.GetRuntime(grovePath, agentRuntime)
+		mgr := agent.NewManager(rt)
+
 		
 		fmt.Printf("Stopping agent '%s'...\n", agentName)
-		if err := rt.Stop(context.Background(), agentName); err != nil {
+		if err := mgr.Stop(context.Background(), agentName); err != nil {
 			return err
 		}
 
-		_ = UpdateAgentStatus(agentName, "stopped")
+		_ = agent.UpdateAgentStatus(agentName, grovePath, "stopped")
 
 		if stopRm {
-			if err := rt.Delete(context.Background(), agentName); err != nil {
-				return err
-			}
-			if err := DeleteAgentFiles(agentName); err != nil {
+			if err := mgr.Delete(context.Background(), agentName, true, grovePath); err != nil {
 				return err
 			}
 			fmt.Printf("Agent '%s' stopped and removed.\n", agentName)
