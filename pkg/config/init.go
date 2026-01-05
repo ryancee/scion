@@ -96,6 +96,7 @@ func SeedTemplateDir(templateDir, templateName, harness, embedDir, configDirName
 		{filepath.Join(homeDir, configDirName, "system_prompt.md"), readEmbed("system_prompt.md"), 0644},
 		{filepath.Join(homeDir, configDirName, mdFile), readEmbed(mdFile), 0644},
 		{filepath.Join(homeDir, ".bashrc"), readEmbed("bashrc"), 0644},
+		{filepath.Join(homeDir, ".tmux.conf"), readCommonEmbed(".tmux.conf"), 0644},
 	}
 
 	if claudeJSON != "" {
