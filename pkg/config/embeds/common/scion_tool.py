@@ -14,7 +14,9 @@ def log_event(state, message):
         f.write(f"{timestamp} [{state}] {message}\n")
 
     if "user" in message.lower() and state not in ["WAITING_FOR_INPUT", "COMPLETED"]:
-        update_status("ACTIVE", session=True)
+        # Special case: don't reset to ACTIVE if it's the system auto-continue prompt
+        if "System: Please continue" not in message:
+            update_status("ACTIVE", session=True)
 
 def update_status(status, session=False):
     data = {}
