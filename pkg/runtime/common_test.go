@@ -321,12 +321,90 @@ func TestBuildCommonRunArgs(t *testing.T) {
 
 		_, err = runSimpleCommand(context.Background(), "false")
 
-		if err == nil {
+			if err == nil {
 
-			t.Error("expected error from running 'false', got nil")
+				t.Error("expected error from running 'false', got nil")
+
+			}
 
 		}
 
-	}
+		
+
+		func TestVolumeDeduplication(t *testing.T) {
+
+			// Setup
+
+			config := RunConfig{
+
+				Harness:      &harness.GeminiCLI{},
+
+				Name:         "test-agent",
+
+				UnixUsername: "scion",
+
+				Image:        "scion-agent:latest",
+
+				// Simulate duplicate volumes
+
+				Volumes: []api.VolumeMount{
+
+					{Source: "/host/path1", Target: "/container/target", ReadOnly: true},
+
+					{Source: "/host/path2", Target: "/container/target", ReadOnly: false}, // Should override
+
+					{Source: "/host/path3", Target: "/container/other", ReadOnly: false},
+
+				},
+
+			}
+
+		
+
+			args, err := buildCommonRunArgs(config)
+
+			if err != nil {
+
+				t.Fatalf("buildCommonRunArgs failed: %v", err)
+
+			}
+
+		
+
+			argStr := strings.Join(args, " ")
+
+		
+
+			// Check that /container/target appears only once (ideally)
+
+			count := strings.Count(argStr, ":/container/target")
+
+			if count != 1 {
+
+				t.Errorf("expected 1 mount for /container/target, got %d. Args: %v", count, args)
+
+			}
+
+		
+
+			// Check that the last one won
+
+			if !strings.Contains(argStr, "/host/path2:/container/target") {
+
+				t.Errorf("expected /host/path2:/container/target to be present, got: %s", argStr)
+
+			}
+
+		
+
+			if strings.Contains(argStr, "/host/path1:/container/target") {
+
+				t.Errorf("expected /host/path1:/container/target to be ABSENT, got: %s", argStr)
+
+			}
+
+		}
+
+		
 
 	

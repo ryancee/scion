@@ -43,37 +43,48 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		return path
 	}
 
+	// Volume deduplication
+	volumeMap := make(map[string]string)
+	var volumeOrder []string
+
+	registerMount := func(src, tgt string, ro bool) {
+		val := fmt.Sprintf("%s:%s", src, tgt)
+		if ro {
+			val += ":ro"
+		}
+		if _, exists := volumeMap[tgt]; !exists {
+			volumeOrder = append(volumeOrder, tgt)
+		}
+		volumeMap[tgt] = val
+	}
+
 	addVolume := func(v api.VolumeMount) {
 		src := expandPath(v.Source, false)
 		tgt := expandPath(v.Target, true)
-		val := fmt.Sprintf("%s:%s", src, tgt)
-		if v.ReadOnly {
-			val += ":ro"
-		}
-		addArg("-v", val)
+		registerMount(src, tgt, v.ReadOnly)
 	}
 
 	addArg("--name", config.Name)
 
 	if config.HomeDir != "" {
-		addArg("-v", fmt.Sprintf("%s:%s", config.HomeDir, util.GetHomeDir(config.UnixUsername)))
+		registerMount(config.HomeDir, util.GetHomeDir(config.UnixUsername), false)
 	}
 	if config.RepoRoot != "" && config.Workspace != "" {
 		relWorkspace, err := filepath.Rel(config.RepoRoot, config.Workspace)
 		if err == nil && !strings.HasPrefix(relWorkspace, "..") {
 			// Mount .git
-			addArg("-v", fmt.Sprintf("%s/.git:/repo-root/.git", config.RepoRoot))
+			registerMount(filepath.Join(config.RepoRoot, ".git"), "/repo-root/.git", false)
 			// Mount workspace at same relative path
 			containerWorkspace := filepath.Join("/repo-root", relWorkspace)
-			addArg("-v", fmt.Sprintf("%s:%s", config.Workspace, containerWorkspace))
+			registerMount(config.Workspace, containerWorkspace, false)
 			addArg("--workdir", containerWorkspace)
 		} else {
 			// Fallback if workspace is outside repo root
-			addArg("-v", fmt.Sprintf("%s:/workspace", config.Workspace))
+			registerMount(config.Workspace, "/workspace", false)
 			addArg("--workdir", "/workspace")
 		}
 	} else if config.Workspace != "" {
-		addArg("-v", fmt.Sprintf("%s:/workspace", config.Workspace))
+		registerMount(config.Workspace, "/workspace", false)
 		addArg("--workdir", "/workspace")
 	}
 
@@ -102,7 +113,7 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 	home, _ := os.UserHomeDir()
 	gcloudConfigDir := filepath.Join(home, ".config", "gcloud")
 	if _, err := os.Stat(gcloudConfigDir); err == nil {
-		addArg("-v", fmt.Sprintf("%s:/home/%s/.config/gcloud:ro", gcloudConfigDir, config.UnixUsername))
+		registerMount(gcloudConfigDir, fmt.Sprintf("/home/%s/.config/gcloud", config.UnixUsername), true)
 	}
 
 	for _, e := range config.Env {
@@ -112,6 +123,11 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		} else {
 			addArg("-e", e)
 		}
+	}
+
+	// Add all registered volumes
+	for _, tgt := range volumeOrder {
+		addArg("-v", volumeMap[tgt])
 	}
 
 	if config.UseTmux {
