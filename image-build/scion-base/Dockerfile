@@ -49,6 +49,11 @@ USER root
 COPY --from=builder /etc/apt/keyrings/githubcli-archive-keyring.gpg /etc/apt/keyrings/githubcli-archive-keyring.gpg
 RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
+# Install gcsfuse
+RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
+    . /etc/os-release && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-${VERSION_CODENAME} main" | tee /etc/apt/sources.list.d/gcsfuse.list
+
 # Install runtime dependencies for Git and Tmux
 # git needs: libcurl4-gnutls-dev (or similar), libexpat1, zlib1g
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -86,6 +91,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
     vim \
     python3-venv \
+    gcsfuse \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

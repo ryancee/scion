@@ -219,6 +219,12 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 			}
 			return nil
 		}(),
+		Kubernetes: func() *api.KubernetesConfig {
+			if finalScionCfg != nil {
+				return finalScionCfg.Kubernetes
+			}
+			return nil
+		}(),
 		Resume: opts.Resume,
 		Labels: map[string]string{
 			"scion.agent": "true",

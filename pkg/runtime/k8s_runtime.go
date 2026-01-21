@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/gcp"
 	"github.com/ptone/scion-agent/pkg/k8s"
 	"github.com/ptone/scion-agent/pkg/mutagen"
 	"golang.org/x/term"
@@ -229,7 +232,7 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 	}
 	// Add other keys as needed
 
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        config.Name,
 			Namespace:   namespace,
@@ -263,6 +266,72 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) *corev1
 			RestartPolicy: corev1.RestartPolicyNever,
 		},
 	}
+
+	// Process Volumes (specifically GCS)
+	type gcsVolInfo struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+		Bucket string `json:"bucket"`
+		Prefix string `json:"prefix"`
+	}
+	var gcsVolumes []gcsVolInfo
+
+	for i, v := range config.Volumes {
+		if v.Type == "gcs" {
+			volName := fmt.Sprintf("gcs-vol-%d", i)
+			attrs := map[string]string{
+				"bucketName": v.Bucket,
+			}
+			if v.Mode != "" {
+				attrs["mountOptions"] = v.Mode
+			} else {
+				attrs["mountOptions"] = "implicit-dirs"
+			}
+
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: volName,
+				VolumeSource: corev1.VolumeSource{
+					CSI: &corev1.CSIVolumeSource{
+						Driver:           "gcsfuse.csi.storage.gke.io",
+						VolumeAttributes: attrs,
+					},
+				},
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      volName,
+				MountPath: v.Target,
+				ReadOnly:  v.ReadOnly,
+			})
+
+			if pod.Annotations == nil {
+				pod.Annotations = make(map[string]string)
+			}
+			pod.Annotations["gke-gcsfuse/volumes"] = "true"
+
+			gcsVolumes = append(gcsVolumes, gcsVolInfo{
+				Source: v.Source,
+				Target: v.Target,
+				Bucket: v.Bucket,
+				Prefix: v.Prefix,
+			})
+		}
+	}
+
+	if len(gcsVolumes) > 0 {
+		if data, err := json.Marshal(gcsVolumes); err == nil {
+			encoded := base64.StdEncoding.EncodeToString(data)
+			if pod.Annotations == nil {
+				pod.Annotations = make(map[string]string)
+			}
+			pod.Annotations["scion.gcs_volumes"] = encoded
+		}
+	}
+
+	if config.Kubernetes != nil && config.Kubernetes.ServiceAccountName != "" {
+		pod.Spec.ServiceAccountName = config.Kubernetes.ServiceAccountName
+	}
+
+	return pod
 }
 
 func (r *KubernetesRuntime) waitForPodReady(ctx context.Context, namespace, podName string) error {
@@ -826,6 +895,43 @@ func (r *KubernetesRuntime) Sync(ctx context.Context, id string, direction SyncD
 
 	if agent == nil {
 		return fmt.Errorf("agent '%s' pod not found", id)
+	}
+
+	// Check for GCS volumes
+	if val, ok := agent.Annotations["scion.gcs_volumes"]; ok && val != "" {
+		decoded, err := base64.StdEncoding.DecodeString(val)
+		if err != nil {
+			return fmt.Errorf("failed to decode gcs volume info: %w", err)
+		}
+
+		type gcsVolInfo struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+			Bucket string `json:"bucket"`
+			Prefix string `json:"prefix"`
+		}
+		var vols []gcsVolInfo
+		if err := json.Unmarshal(decoded, &vols); err != nil {
+			return fmt.Errorf("failed to parse gcs volume info: %w", err)
+		}
+
+		for _, v := range vols {
+			if v.Source == "" {
+				continue
+			}
+			if direction == SyncTo {
+				if err := gcp.SyncToGCS(ctx, v.Source, v.Bucket, v.Prefix); err != nil {
+					return fmt.Errorf("failed to sync to GCS: %w", err)
+				}
+			} else if direction == SyncFrom {
+				if err := gcp.SyncFromGCS(ctx, v.Bucket, v.Prefix, v.Source); err != nil {
+					return fmt.Errorf("failed to sync from GCS: %w", err)
+				}
+			} else {
+				return fmt.Errorf("sync direction must be specified for GCS volumes")
+			}
+		}
+		return nil
 	}
 
 	workspacePath := agent.Annotations["scion.workspace"]

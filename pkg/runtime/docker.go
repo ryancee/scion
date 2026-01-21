@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/gcp"
 )
 
 type DockerRuntime struct {
@@ -166,11 +168,64 @@ func (r *DockerRuntime) PullImage(ctx context.Context, image string) error {
 }
 
 func (r *DockerRuntime) Sync(ctx context.Context, id string, direction SyncDirection) error {
+	agents, err := r.List(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %w", err)
+	}
 
-	// Docker runtime uses bind mounts, so sync is automatic/noop
+	var agent *api.AgentInfo
+	for _, a := range agents {
+		// Match by full ID, short ID (12 chars), or name (with or without leading slash)
+		if a.ID == id || (len(id) >= 12 && strings.HasPrefix(a.ID, id)) || (len(a.ID) >= 12 && strings.HasPrefix(id, a.ID)) ||
+			a.Name == id || a.Name == "/"+id || strings.TrimPrefix(a.Name, "/") == id {
+			agent = &a
+			break
+		}
+	}
 
+	if agent == nil {
+		return fmt.Errorf("agent '%s' container not found", id)
+	}
+
+	// Check for GCS volumes
+	if val, ok := agent.Labels["scion.gcs_volumes"]; ok && val != "" {
+		decoded, err := base64.StdEncoding.DecodeString(val)
+		if err != nil {
+			return fmt.Errorf("failed to decode gcs volume info: %w", err)
+		}
+
+		type gcsVolInfo struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+			Bucket string `json:"bucket"`
+			Prefix string `json:"prefix"`
+		}
+		var vols []gcsVolInfo
+		if err := json.Unmarshal(decoded, &vols); err != nil {
+			return fmt.Errorf("failed to parse gcs volume info: %w", err)
+		}
+
+		for _, v := range vols {
+			if v.Source == "" {
+				continue
+			}
+			if direction == SyncTo {
+				if err := gcp.SyncToGCS(ctx, v.Source, v.Bucket, v.Prefix); err != nil {
+					return fmt.Errorf("failed to sync to GCS: %w", err)
+				}
+			} else if direction == SyncFrom {
+				if err := gcp.SyncFromGCS(ctx, v.Bucket, v.Prefix, v.Source); err != nil {
+					return fmt.Errorf("failed to sync from GCS: %w", err)
+				}
+			} else {
+				return fmt.Errorf("sync direction must be specified for GCS volumes")
+			}
+		}
+		return nil
+	}
+
+	// Docker runtime uses bind mounts for normal volumes, so sync is automatic/noop
 	return nil
-
 }
 
 func (r *DockerRuntime) Exec(ctx context.Context, id string, cmd []string) (string, error) {

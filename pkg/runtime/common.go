@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -60,9 +62,43 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		}
 	}
 
+	var fuseMounts []string
+	type gcsVolInfo struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+		Bucket string `json:"bucket"`
+		Prefix string `json:"prefix"`
+	}
+	var gcsVolumes []gcsVolInfo
+
 	addVolume := func(v api.VolumeMount) {
-		src := expandPath(v.Source, false)
 		tgt := expandPath(v.Target, true)
+
+		if v.Type == "gcs" {
+			// Do not register as docker bind mount
+			cmd := fmt.Sprintf("mkdir -p %q && gcsfuse ", tgt)
+			if v.Prefix != "" {
+				cmd += fmt.Sprintf("--only-dir %q ", v.Prefix)
+			}
+			if v.Mode != "" {
+				cmd += fmt.Sprintf("-o %q ", v.Mode)
+			}
+			// Add implicit dirs for better compatibility with folder structures created via UI/API
+			cmd += "--implicit-dirs "
+
+			cmd += fmt.Sprintf("%q %q", v.Bucket, tgt)
+			fuseMounts = append(fuseMounts, cmd)
+
+			gcsVolumes = append(gcsVolumes, gcsVolInfo{
+				Source: expandPath(v.Source, false),
+				Target: tgt,
+				Bucket: v.Bucket,
+				Prefix: v.Prefix,
+			})
+			return
+		}
+
+		src := expandPath(v.Source, false)
 		// Generic volumes from config should NOT overwrite already registered mounts (like workspace)
 		registerMount(src, tgt, v.ReadOnly, false)
 	}
@@ -164,6 +200,15 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		addArg("-v", volumeMap[tgt])
 	}
 
+	if len(fuseMounts) > 0 {
+		addArg("--cap-add", "SYS_ADMIN")
+		addArg("--device", "/dev/fuse")
+		if data, err := json.Marshal(gcsVolumes); err == nil {
+			encoded := base64.StdEncoding.EncodeToString(data)
+			addArg("--label", fmt.Sprintf("scion.gcs_volumes=%s", encoded))
+		}
+	}
+
 	if config.UseTmux {
 		if config.Labels == nil {
 			config.Labels = make(map[string]string)
@@ -191,20 +236,47 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		return nil, fmt.Errorf("no harness provided")
 	}
 
-	if config.UseTmux {
-		var quotedArgs []string
-		for _, a := range harnessArgs {
-			// Use %q to quote arguments that might have spaces or special characters
-			if strings.ContainsAny(a, " \t\n\"'$") {
-				quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
-			} else {
-				quotedArgs = append(quotedArgs, a)
+	if len(fuseMounts) > 0 {
+		var finalCmd []string
+		if config.UseTmux {
+			var quotedArgs []string
+			for _, a := range harnessArgs {
+				if strings.ContainsAny(a, " \t\n\"'$") {
+					quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
+				} else {
+					quotedArgs = append(quotedArgs, a)
+				}
 			}
+			cmdLine := strings.Join(quotedArgs, " ")
+			finalCmd = []string{"tmux", "new-session", "-s", "scion", cmdLine}
+		} else {
+			finalCmd = harnessArgs
 		}
-		cmdLine := strings.Join(quotedArgs, " ")
-		args = append(args, "tmux", "new-session", "-s", "scion", cmdLine)
+
+		mountCmds := strings.Join(fuseMounts, " && ")
+		var quotedFinal []string
+		for _, a := range finalCmd {
+			quotedFinal = append(quotedFinal, fmt.Sprintf("%q", a))
+		}
+		wrapped := fmt.Sprintf("%s && exec %s", mountCmds, strings.Join(quotedFinal, " "))
+		args = append(args, "sh", "-c", wrapped)
+
 	} else {
-		args = append(args, harnessArgs...)
+		if config.UseTmux {
+			var quotedArgs []string
+			for _, a := range harnessArgs {
+				// Use %q to quote arguments that might have spaces or special characters
+				if strings.ContainsAny(a, " \t\n\"'$") {
+					quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
+				} else {
+					quotedArgs = append(quotedArgs, a)
+				}
+			}
+			cmdLine := strings.Join(quotedArgs, " ")
+			args = append(args, "tmux", "new-session", "-s", "scion", cmdLine)
+		} else {
+			args = append(args, harnessArgs...)
+		}
 	}
 
 	return args, nil

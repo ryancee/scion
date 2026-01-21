@@ -24,6 +24,7 @@ type RunConfig struct {
 	Task         string
 	CommandArgs  []string
 	Resume       bool
+	Kubernetes   *api.KubernetesConfig
 }
 
 type Runtime interface {

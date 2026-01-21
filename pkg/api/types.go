@@ -15,13 +15,18 @@ type VolumeMount struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	Type     string `json:"type,omitempty"`   // "local" (default) or "gcs"
+	Bucket   string `json:"bucket,omitempty"` // For GCS
+	Prefix   string `json:"prefix,omitempty"` // For GCS
+	Mode     string `json:"mode,omitempty"`   // Mount options
 }
 
 type KubernetesConfig struct {
-	Context          string        `json:"context,omitempty"`
-	Namespace        string        `json:"namespace,omitempty"`
-	RuntimeClassName string        `json:"runtimeClassName,omitempty"`
-	Resources        *K8sResources `json:"resources,omitempty"`
+	Context            string        `json:"context,omitempty"`
+	Namespace          string        `json:"namespace,omitempty"`
+	RuntimeClassName   string        `json:"runtimeClassName,omitempty"`
+	ServiceAccountName string        `json:"serviceAccountName,omitempty"` // For Workload Identity
+	Resources          *K8sResources `json:"resources,omitempty"`
 }
 
 type K8sResources struct {
