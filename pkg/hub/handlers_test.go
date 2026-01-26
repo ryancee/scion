@@ -811,17 +811,21 @@ func TestTemplateCreate(t *testing.T) {
 		t.Errorf("expected status 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp store.Template
+	var resp CreateTemplateResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.Slug != "new-template" {
-		t.Errorf("expected slug 'new-template', got %q", resp.Slug)
+	if resp.Template == nil {
+		t.Fatalf("expected template in response, got nil")
 	}
 
-	if resp.Visibility != store.VisibilityPrivate {
-		t.Errorf("expected visibility 'private', got %q", resp.Visibility)
+	if resp.Template.Slug != "new-template" {
+		t.Errorf("expected slug 'new-template', got %q", resp.Template.Slug)
+	}
+
+	if resp.Template.Visibility != store.VisibilityPrivate {
+		t.Errorf("expected visibility 'private', got %q", resp.Template.Visibility)
 	}
 }
 

@@ -54,6 +54,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		migrationV3,
 		migrationV4,
 		migrationV5,
+		migrationV6,
 	}
 
 	// Create migrations table if not exists
@@ -346,6 +347,28 @@ CREATE TABLE IF NOT EXISTS policy_bindings (
 	FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_policy_bindings_principal ON policy_bindings(principal_type, principal_id);
+`
+
+// Migration V6: Extend templates table for hosted template management
+const migrationV6 = `
+-- Add new columns to templates table
+ALTER TABLE templates ADD COLUMN display_name TEXT;
+ALTER TABLE templates ADD COLUMN description TEXT;
+ALTER TABLE templates ADD COLUMN content_hash TEXT;
+ALTER TABLE templates ADD COLUMN scope_id TEXT;
+ALTER TABLE templates ADD COLUMN storage_bucket TEXT;
+ALTER TABLE templates ADD COLUMN storage_path TEXT;
+ALTER TABLE templates ADD COLUMN files TEXT;
+ALTER TABLE templates ADD COLUMN base_template TEXT;
+ALTER TABLE templates ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE templates ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE templates ADD COLUMN created_by TEXT;
+ALTER TABLE templates ADD COLUMN updated_by TEXT;
+
+-- Add indexes for new columns
+CREATE INDEX IF NOT EXISTS idx_templates_status ON templates(status);
+CREATE INDEX IF NOT EXISTS idx_templates_content_hash ON templates(content_hash);
+CREATE INDEX IF NOT EXISTS idx_templates_scope_id ON templates(scope, scope_id);
 `
 
 // Helper functions for JSON marshaling/unmarshaling
@@ -1194,13 +1217,28 @@ func (s *SQLiteStore) CreateTemplate(ctx context.Context, template *store.Templa
 	template.Created = now
 	template.Updated = now
 
+	// Set default status if not provided
+	if template.Status == "" {
+		template.Status = store.TemplateStatusActive
+	}
+
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO templates (id, name, slug, harness, image, config, scope, grove_id, storage_uri, owner_id, visibility, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO templates (
+			id, name, slug, display_name, description, harness, image, config,
+			content_hash, scope, scope_id, grove_id,
+			storage_uri, storage_bucket, storage_path, files,
+			base_template, locked, status,
+			owner_id, created_by, updated_by, visibility,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		template.ID, template.Name, template.Slug, template.Harness, template.Image,
-		marshalJSON(template.Config), template.Scope, nullableString(template.GroveID), template.StorageURI,
-		template.OwnerID, template.Visibility, template.Created, template.Updated,
+		template.ID, template.Name, template.Slug, nullableString(template.DisplayName), nullableString(template.Description),
+		template.Harness, template.Image, marshalJSON(template.Config),
+		nullableString(template.ContentHash), template.Scope, nullableString(template.ScopeID), nullableString(template.GroveID),
+		nullableString(template.StorageURI), nullableString(template.StorageBucket), nullableString(template.StoragePath), marshalJSON(template.Files),
+		nullableString(template.BaseTemplate), template.Locked, template.Status,
+		nullableString(template.OwnerID), nullableString(template.CreatedBy), nullableString(template.UpdatedBy), template.Visibility,
+		template.Created, template.Updated,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -1213,16 +1251,27 @@ func (s *SQLiteStore) CreateTemplate(ctx context.Context, template *store.Templa
 
 func (s *SQLiteStore) GetTemplate(ctx context.Context, id string) (*store.Template, error) {
 	template := &store.Template{}
-	var config string
-	var groveID sql.NullString
+	var config, files string
+	var displayName, description, contentHash, scopeID, groveID sql.NullString
+	var storageURI, storageBucket, storagePath, baseTemplate sql.NullString
+	var createdBy, updatedBy, ownerID, visibility sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, slug, harness, image, config, scope, grove_id, storage_uri, owner_id, visibility, created_at, updated_at
+		SELECT id, name, slug, display_name, description, harness, image, config,
+			content_hash, scope, scope_id, grove_id,
+			storage_uri, storage_bucket, storage_path, files,
+			base_template, locked, status,
+			owner_id, created_by, updated_by, visibility,
+			created_at, updated_at
 		FROM templates WHERE id = ?
 	`, id).Scan(
-		&template.ID, &template.Name, &template.Slug, &template.Harness, &template.Image,
-		&config, &template.Scope, &groveID, &template.StorageURI,
-		&template.OwnerID, &template.Visibility, &template.Created, &template.Updated,
+		&template.ID, &template.Name, &template.Slug, &displayName, &description,
+		&template.Harness, &template.Image, &config,
+		&contentHash, &template.Scope, &scopeID, &groveID,
+		&storageURI, &storageBucket, &storagePath, &files,
+		&baseTemplate, &template.Locked, &template.Status,
+		&ownerID, &createdBy, &updatedBy, &visibility,
+		&template.Created, &template.Updated,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1231,20 +1280,60 @@ func (s *SQLiteStore) GetTemplate(ctx context.Context, id string) (*store.Templa
 		return nil, err
 	}
 
+	if displayName.Valid {
+		template.DisplayName = displayName.String
+	}
+	if description.Valid {
+		template.Description = description.String
+	}
+	if contentHash.Valid {
+		template.ContentHash = contentHash.String
+	}
+	if scopeID.Valid {
+		template.ScopeID = scopeID.String
+	}
 	if groveID.Valid {
 		template.GroveID = groveID.String
 	}
+	if storageURI.Valid {
+		template.StorageURI = storageURI.String
+	}
+	if storageBucket.Valid {
+		template.StorageBucket = storageBucket.String
+	}
+	if storagePath.Valid {
+		template.StoragePath = storagePath.String
+	}
+	if baseTemplate.Valid {
+		template.BaseTemplate = baseTemplate.String
+	}
+	if ownerID.Valid {
+		template.OwnerID = ownerID.String
+	}
+	if createdBy.Valid {
+		template.CreatedBy = createdBy.String
+	}
+	if updatedBy.Valid {
+		template.UpdatedBy = updatedBy.String
+	}
+	if visibility.Valid {
+		template.Visibility = visibility.String
+	}
 	unmarshalJSON(config, &template.Config)
+	unmarshalJSON(files, &template.Files)
 
 	return template, nil
 }
 
-func (s *SQLiteStore) GetTemplateBySlug(ctx context.Context, slug, scope, groveID string) (*store.Template, error) {
+func (s *SQLiteStore) GetTemplateBySlug(ctx context.Context, slug, scope, scopeID string) (*store.Template, error) {
 	var id string
 	var err error
 
-	if scope == "grove" && groveID != "" {
-		err = s.db.QueryRowContext(ctx, "SELECT id FROM templates WHERE slug = ? AND scope = ? AND grove_id = ?", slug, scope, groveID).Scan(&id)
+	if scope == "grove" && scopeID != "" {
+		// Try scope_id first, then fall back to grove_id for backwards compatibility
+		err = s.db.QueryRowContext(ctx, "SELECT id FROM templates WHERE slug = ? AND scope = ? AND (scope_id = ? OR grove_id = ?)", slug, scope, scopeID, scopeID).Scan(&id)
+	} else if scope == "user" && scopeID != "" {
+		err = s.db.QueryRowContext(ctx, "SELECT id FROM templates WHERE slug = ? AND scope = ? AND scope_id = ?", slug, scope, scopeID).Scan(&id)
 	} else {
 		err = s.db.QueryRowContext(ctx, "SELECT id FROM templates WHERE slug = ? AND scope = ?", slug, scope).Scan(&id)
 	}
@@ -1263,14 +1352,22 @@ func (s *SQLiteStore) UpdateTemplate(ctx context.Context, template *store.Templa
 
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE templates SET
-			name = ?, slug = ?, harness = ?, image = ?, config = ?,
-			scope = ?, grove_id = ?, storage_uri = ?,
-			owner_id = ?, visibility = ?, updated_at = ?
+			name = ?, slug = ?, display_name = ?, description = ?,
+			harness = ?, image = ?, config = ?,
+			content_hash = ?, scope = ?, scope_id = ?, grove_id = ?,
+			storage_uri = ?, storage_bucket = ?, storage_path = ?, files = ?,
+			base_template = ?, locked = ?, status = ?,
+			owner_id = ?, updated_by = ?, visibility = ?,
+			updated_at = ?
 		WHERE id = ?
 	`,
-		template.Name, template.Slug, template.Harness, template.Image, marshalJSON(template.Config),
-		template.Scope, nullableString(template.GroveID), template.StorageURI,
-		template.OwnerID, template.Visibility, template.Updated,
+		template.Name, template.Slug, nullableString(template.DisplayName), nullableString(template.Description),
+		template.Harness, template.Image, marshalJSON(template.Config),
+		nullableString(template.ContentHash), template.Scope, nullableString(template.ScopeID), nullableString(template.GroveID),
+		nullableString(template.StorageURI), nullableString(template.StorageBucket), nullableString(template.StoragePath), marshalJSON(template.Files),
+		nullableString(template.BaseTemplate), template.Locked, template.Status,
+		nullableString(template.OwnerID), nullableString(template.UpdatedBy), template.Visibility,
+		template.Updated,
 		template.ID,
 	)
 	if err != nil {
@@ -1310,9 +1407,13 @@ func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFi
 		conditions = append(conditions, "scope = ?")
 		args = append(args, filter.Scope)
 	}
-	if filter.GroveID != "" {
-		conditions = append(conditions, "grove_id = ?")
-		args = append(args, filter.GroveID)
+	if filter.ScopeID != "" {
+		conditions = append(conditions, "(scope_id = ? OR grove_id = ?)")
+		args = append(args, filter.ScopeID, filter.ScopeID)
+	} else if filter.GroveID != "" {
+		// Backwards compatibility
+		conditions = append(conditions, "(scope_id = ? OR grove_id = ?)")
+		args = append(args, filter.GroveID, filter.GroveID)
 	}
 	if filter.Harness != "" {
 		conditions = append(conditions, "harness = ?")
@@ -1321,6 +1422,15 @@ func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFi
 	if filter.OwnerID != "" {
 		conditions = append(conditions, "owner_id = ?")
 		args = append(args, filter.OwnerID)
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.Search != "" {
+		conditions = append(conditions, "(name LIKE ? OR description LIKE ?)")
+		searchPattern := "%" + filter.Search + "%"
+		args = append(args, searchPattern, searchPattern)
 	}
 
 	whereClause := ""
@@ -1340,7 +1450,12 @@ func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFi
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, name, slug, harness, image, config, scope, grove_id, storage_uri, owner_id, visibility, created_at, updated_at
+		SELECT id, name, slug, display_name, description, harness, image, config,
+			content_hash, scope, scope_id, grove_id,
+			storage_uri, storage_bucket, storage_path, files,
+			base_template, locked, status,
+			owner_id, created_by, updated_by, visibility,
+			created_at, updated_at
 		FROM templates %s ORDER BY created_at DESC LIMIT ?
 	`, whereClause)
 	args = append(args, limit)
@@ -1354,21 +1469,64 @@ func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFi
 	var templates []store.Template
 	for rows.Next() {
 		var template store.Template
-		var config string
-		var groveID sql.NullString
+		var config, files string
+		var displayName, description, contentHash, scopeID, groveID sql.NullString
+		var storageURI, storageBucket, storagePath, baseTemplate sql.NullString
+		var createdBy, updatedBy, ownerID, visibility sql.NullString
 
 		if err := rows.Scan(
-			&template.ID, &template.Name, &template.Slug, &template.Harness, &template.Image,
-			&config, &template.Scope, &groveID, &template.StorageURI,
-			&template.OwnerID, &template.Visibility, &template.Created, &template.Updated,
+			&template.ID, &template.Name, &template.Slug, &displayName, &description,
+			&template.Harness, &template.Image, &config,
+			&contentHash, &template.Scope, &scopeID, &groveID,
+			&storageURI, &storageBucket, &storagePath, &files,
+			&baseTemplate, &template.Locked, &template.Status,
+			&ownerID, &createdBy, &updatedBy, &visibility,
+			&template.Created, &template.Updated,
 		); err != nil {
 			return nil, err
 		}
 
+		if displayName.Valid {
+			template.DisplayName = displayName.String
+		}
+		if description.Valid {
+			template.Description = description.String
+		}
+		if contentHash.Valid {
+			template.ContentHash = contentHash.String
+		}
+		if scopeID.Valid {
+			template.ScopeID = scopeID.String
+		}
 		if groveID.Valid {
 			template.GroveID = groveID.String
 		}
+		if storageURI.Valid {
+			template.StorageURI = storageURI.String
+		}
+		if storageBucket.Valid {
+			template.StorageBucket = storageBucket.String
+		}
+		if storagePath.Valid {
+			template.StoragePath = storagePath.String
+		}
+		if baseTemplate.Valid {
+			template.BaseTemplate = baseTemplate.String
+		}
+		if ownerID.Valid {
+			template.OwnerID = ownerID.String
+		}
+		if createdBy.Valid {
+			template.CreatedBy = createdBy.String
+		}
+		if updatedBy.Valid {
+			template.UpdatedBy = updatedBy.String
+		}
+		if visibility.Valid {
+			template.Visibility = visibility.String
+		}
 		unmarshalJSON(config, &template.Config)
+		unmarshalJSON(files, &template.Files)
 
 		templates = append(templates, template)
 	}

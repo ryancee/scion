@@ -183,39 +183,95 @@ type GroveContributor struct {
 // Template represents an agent template in the Hub database.
 type Template struct {
 	// Identity
-	ID   string `json:"id"`   // UUID primary key
-	Name string `json:"name"` // Template name
-	Slug string `json:"slug"` // URL-safe identifier
+	ID          string `json:"id"`                    // UUID primary key
+	Name        string `json:"name"`                  // Template name (e.g., "claude", "custom-gemini")
+	Slug        string `json:"slug"`                  // URL-safe identifier
+	DisplayName string `json:"displayName,omitempty"` // Human-friendly name
+	Description string `json:"description,omitempty"` // Optional description
 
 	// Configuration
 	Harness string          `json:"harness"` // claude, gemini, opencode, codex, generic
 	Image   string          `json:"image"`   // Default container image
 	Config  *TemplateConfig `json:"config,omitempty"`
 
+	// Content tracking
+	ContentHash string `json:"contentHash,omitempty"` // SHA-256 hash of template contents
+
 	// Scope
 	Scope   string `json:"scope"`             // global, grove, user
-	GroveID string `json:"groveId,omitempty"` // Grove association (if scope=grove)
+	ScopeID string `json:"scopeId,omitempty"` // groveId or userId (null for global)
+	GroveID string `json:"groveId,omitempty"` // Grove association (if scope=grove) - deprecated, use ScopeID
 
 	// Storage
-	StorageURI string `json:"storageUri,omitempty"` // Remote storage URI
+	StorageURI    string `json:"storageUri,omitempty"`    // Full bucket URI (e.g., "gs://bucket/templates/path/")
+	StorageBucket string `json:"storageBucket,omitempty"` // Bucket name
+	StoragePath   string `json:"storagePath,omitempty"`   // Path within bucket
+
+	// File manifest
+	Files []TemplateFile `json:"files,omitempty"` // Manifest of template files
+
+	// Inheritance
+	BaseTemplate string `json:"baseTemplate,omitempty"` // Parent template ID (for inheritance)
+
+	// Protection
+	Locked bool   `json:"locked,omitempty"` // Prevent modifications (global templates)
+	Status string `json:"status"`           // pending, active, archived
 
 	// Ownership
 	OwnerID    string `json:"ownerId,omitempty"`
-	Visibility string `json:"visibility"` // private, team, public
+	CreatedBy  string `json:"createdBy,omitempty"`
+	UpdatedBy  string `json:"updatedBy,omitempty"`
+	Visibility string `json:"visibility"` // private, grove, public
 
 	// Timestamps
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 }
 
+// TemplateFile represents a file within a template.
+type TemplateFile struct {
+	Path string `json:"path"`           // Relative path (e.g., "home/.bashrc")
+	Size int64  `json:"size"`           // File size in bytes
+	Hash string `json:"hash"`           // SHA-256 hash of file
+	Mode string `json:"mode,omitempty"` // File permissions (e.g., "0644")
+}
+
+// TemplateStatus constants
+const (
+	TemplateStatusPending  = "pending"
+	TemplateStatusActive   = "active"
+	TemplateStatusArchived = "archived"
+)
+
+// TemplateScope constants
+const (
+	TemplateScopeGlobal = "global"
+	TemplateScopeGrove  = "grove"
+	TemplateScopeUser   = "user"
+)
+
 // TemplateConfig holds template configuration details.
 type TemplateConfig struct {
 	Harness     string            `json:"harness,omitempty"`
+	Image       string            `json:"image,omitempty"`
 	ConfigDir   string            `json:"configDir,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	Detached    bool              `json:"detached,omitempty"`
 	CommandArgs []string          `json:"commandArgs,omitempty"`
 	Model       string            `json:"model,omitempty"`
+	Kubernetes  *KubernetesConfig `json:"kubernetes,omitempty"`
+}
+
+// KubernetesConfig holds Kubernetes-specific configuration for templates.
+type KubernetesConfig struct {
+	Resources *ResourceRequirements `json:"resources,omitempty"`
+	NodeSelector map[string]string  `json:"nodeSelector,omitempty"`
+}
+
+// ResourceRequirements defines compute resource requirements.
+type ResourceRequirements struct {
+	Limits   map[string]string `json:"limits,omitempty"`
+	Requests map[string]string `json:"requests,omitempty"`
 }
 
 // User represents a registered user in the Hub database.

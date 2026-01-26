@@ -214,9 +214,12 @@ type TemplateStore interface {
 // TemplateFilter defines criteria for filtering templates.
 type TemplateFilter struct {
 	Scope   string
-	GroveID string
+	ScopeID string
+	GroveID string // Deprecated: use ScopeID
 	Harness string
 	OwnerID string
+	Status  string
+	Search  string // Full-text search on name/description
 }
 
 // UserStore defines user persistence operations.

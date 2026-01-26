@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/store"
 )
 
@@ -146,6 +147,7 @@ type Server struct {
 	mu         sync.RWMutex
 	startTime  time.Time
 	dispatcher AgentDispatcher // Optional dispatcher for co-located runtime host
+	storage    storage.Storage // Optional storage backend for templates
 }
 
 // New creates a new Hub API server.
@@ -174,6 +176,20 @@ func (s *Server) GetDispatcher() AgentDispatcher {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.dispatcher
+}
+
+// SetStorage sets the storage backend for template files.
+func (s *Server) SetStorage(stor storage.Storage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.storage = stor
+}
+
+// GetStorage returns the current storage backend.
+func (s *Server) GetStorage() storage.Storage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.storage
 }
 
 // Start starts the HTTP server.
@@ -252,8 +268,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/runtime-hosts", s.handleRuntimeHosts)
 	s.mux.HandleFunc("/api/v1/runtime-hosts/", s.handleRuntimeHostRoutes)
 
-	s.mux.HandleFunc("/api/v1/templates", s.handleTemplates)
-	s.mux.HandleFunc("/api/v1/templates/", s.handleTemplateByID)
+	s.mux.HandleFunc("/api/v1/templates", s.handleTemplatesV2)
+	s.mux.HandleFunc("/api/v1/templates/", s.handleTemplateByIDV2)
 
 	s.mux.HandleFunc("/api/v1/users", s.handleUsers)
 	s.mux.HandleFunc("/api/v1/users/", s.handleUserByID)
