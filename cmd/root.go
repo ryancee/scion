@@ -135,7 +135,7 @@ func Execute() {
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\n%s%sError: %v%s\n\n", util.BgRed, util.Black, err, util.Reset)
+		fmt.Fprintf(os.Stderr, "\n%s%s%sError: %v%s\n\n", util.BgRed, util.White, util.Bold, err, util.Reset)
 		if cmd != nil && autoHelp {
 			cmd.Usage()
 		}
