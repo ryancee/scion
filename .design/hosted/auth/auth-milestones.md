@@ -73,11 +73,28 @@ This document tracks the phased implementation of Scion authentication.
 
 ---
 
+## Phase 5: Unified Server Authentication
+
+*Added: 2026-01-31*
+
+- [ ] Implement unified `authMiddleware` with token type detection
+- [ ] Implement `UserTokenService` for Hub-issued JWTs
+- [ ] Add `/api/v1/auth/login` endpoint (OAuth token exchange for web)
+- [ ] Update Koa proxy to use Hub-issued tokens
+- [ ] Implement `Identity` interface for user/agent context
+- [ ] Add trusted proxy support for Koa frontend
+- [ ] Migrate from dev-only auth to unified middleware
+- [ ] Implement token blacklist for revocation
+- [ ] Add HTTPS enforcement in production
+
+---
+
 ## Related Documents
 
 - [Auth Overview](auth-overview.md) - Identity model and token types
 - [Web Authentication](web-auth.md) - Browser-based OAuth flows
 - [CLI Authentication](cli-auth.md) - Terminal-based authentication
+- [Server Authentication](server-auth-design.md) - Hub server-side auth handling
 - [Server Auth Setup](server-auth-setup.md) - API keys and dev authentication
 - [Runtime Host Auth](runtime-host-auth.md) - Host registration (future)
 - [sciontool Auth](sciontool-auth.md) - Agent-to-Hub JWT authentication

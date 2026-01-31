@@ -339,4 +339,5 @@ API keys are created via the web dashboard and stored in the same credentials fi
 
 - [Auth Overview](auth-overview.md) - Identity model and token types
 - [Web Authentication](web-auth.md) - Browser-based OAuth flows
+- [Server Authentication](server-auth-design.md) - Hub server-side auth handling
 - [Server Auth Setup](server-auth-setup.md) - API keys and dev authentication

@@ -90,6 +90,7 @@ type TokenClaims struct {
 - [Web Authentication](web-auth.md) - OAuth flows for web dashboard
 - [CLI Authentication](cli-auth.md) - Terminal-based authentication
 - [Agent Authentication](sciontool-auth.md) - Agent-to-Hub secure communication
+- [Server Authentication](server-auth-design.md) - Hub server-side auth handling
 - [Server Auth Setup](server-auth-setup.md) - API keys, dev auth, and security
 - [Runtime Host Auth](runtime-host-auth.md) - Host registration and mutual TLS
 - [Implementation Milestones](auth-milestones.md) - Phased implementation plan

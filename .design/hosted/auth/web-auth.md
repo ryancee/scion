@@ -73,4 +73,5 @@ GET /api/v1/auth/me
 
 - [Auth Overview](auth-overview.md) - Identity model and token types
 - [CLI Authentication](cli-auth.md) - Terminal-based authentication
+- [Server Authentication](server-auth-design.md) - Hub server-side auth handling
 - [Server Auth Setup](server-auth-setup.md) - API keys and security considerations
