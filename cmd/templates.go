@@ -13,6 +13,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/spf13/cobra"
 )
 
@@ -96,16 +97,136 @@ var templatesDeleteCmd = &cobra.Command{
 	Aliases: []string{"rm"},
 	Short:   "Delete a template",
 	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		global, _ := cmd.Flags().GetBool("global")
-		err := config.DeleteTemplate(name, global)
-		if err != nil {
+	RunE:    runTemplateDelete,
+}
+
+// runTemplateDelete implements the delete command with confirmation prompts.
+// It checks both local and hub for the template, then prompts accordingly.
+func runTemplateDelete(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	global := globalMode
+
+	// Check local existence
+	localTemplate, localErr := config.FindTemplate(name)
+	localExists := localErr == nil && localTemplate != nil
+
+	// Check hub existence (unless --no-hub)
+	var hubTemplate *hubclient.Template
+	var hubCtx *HubContext
+	hubExists := false
+
+	if !noHub {
+		var err error
+		hubCtx, err = CheckHubAvailabilityWithOptions(grovePath, true)
+		if err == nil && hubCtx != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Determine scope and grove ID for hub lookup
+			scope := "grove"
+			if global {
+				scope = "global"
+			}
+			var groveID string
+			if scope == "grove" {
+				groveID, _ = GetGroveID(hubCtx)
+			}
+
+			hubTemplate, err = findTemplateOnHub(ctx, hubCtx, name, scope, groveID)
+			if err == nil && hubTemplate != nil {
+				hubExists = true
+			}
+		}
+	}
+
+	if !localExists && !hubExists {
+		return fmt.Errorf("template '%s' not found", name)
+	}
+
+	switch {
+	case localExists && !hubExists:
+		// Local only
+		if !hubsync.ConfirmAction("Delete local template '"+name+"'?", true, autoConfirm) {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+		if err := config.DeleteTemplate(name, global); err != nil {
 			return err
 		}
-		fmt.Printf("Template %s deleted successfully.\n", name)
-		return nil
-	},
+		fmt.Printf("Local template '%s' deleted successfully.\n", name)
+
+	case !localExists && hubExists:
+		// Hub only
+		if !hubsync.ConfirmAction("Delete remote template '"+name+"'?", true, autoConfirm) {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := hubCtx.Client.Templates().Delete(ctx, hubTemplate.ID); err != nil {
+			return fmt.Errorf("failed to delete remote template: %w", err)
+		}
+		fmt.Printf("Remote template '%s' deleted successfully.\n", name)
+
+	case localExists && hubExists:
+		// Both exist
+		if autoConfirm {
+			// Auto-confirm: delete both
+			if err := config.DeleteTemplate(name, global); err != nil {
+				return fmt.Errorf("failed to delete local template: %w", err)
+			}
+			fmt.Printf("Local template '%s' deleted.\n", name)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := hubCtx.Client.Templates().Delete(ctx, hubTemplate.ID); err != nil {
+				return fmt.Errorf("failed to delete remote template: %w", err)
+			}
+			fmt.Printf("Remote template '%s' deleted.\n", name)
+		} else {
+			fmt.Printf("Template '%s' exists both locally and on the Hub.\n", name)
+			fmt.Printf("  [L] Delete local only\n")
+			fmt.Printf("  [R] Delete remote only\n")
+			fmt.Printf("  [B] Delete both\n")
+			fmt.Printf("  [C] Cancel\n")
+
+			choice, err := promptChoice("Choose an option", "C", []string{"L", "R", "B", "C"})
+			if err != nil {
+				return err
+			}
+
+			switch choice {
+			case "L":
+				if err := config.DeleteTemplate(name, global); err != nil {
+					return err
+				}
+				fmt.Printf("Local template '%s' deleted successfully.\n", name)
+			case "R":
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := hubCtx.Client.Templates().Delete(ctx, hubTemplate.ID); err != nil {
+					return fmt.Errorf("failed to delete remote template: %w", err)
+				}
+				fmt.Printf("Remote template '%s' deleted successfully.\n", name)
+			case "B":
+				if err := config.DeleteTemplate(name, global); err != nil {
+					return fmt.Errorf("failed to delete local template: %w", err)
+				}
+				fmt.Printf("Local template '%s' deleted.\n", name)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := hubCtx.Client.Templates().Delete(ctx, hubTemplate.ID); err != nil {
+					return fmt.Errorf("failed to delete remote template: %w", err)
+				}
+				fmt.Printf("Remote template '%s' deleted.\n", name)
+			case "C":
+				fmt.Println("Cancelled.")
+			}
+		}
+	}
+
+	return nil
 }
 
 var templatesCloneCmd = &cobra.Command{
@@ -579,6 +700,13 @@ func init() {
 		Short: "Show template configuration",
 		Args:  cobra.ExactArgs(1),
 		RunE:  templatesShowCmd.RunE,
+	})
+	templateCmd.AddCommand(&cobra.Command{
+		Use:     "delete <name>",
+		Aliases: []string{"rm"},
+		Short:   "Delete a template",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runTemplateDelete,
 	})
 	// Add sync, push, pull to singular alias (--global is inherited from root)
 	syncAlias := &cobra.Command{
