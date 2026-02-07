@@ -373,3 +373,34 @@ func ShowWithdrawPrompt(groveName, brokerName string, autoConfirm bool) bool {
 	// Default NO for safety - could disrupt running agents
 	return ConfirmAction("Continue?", false, autoConfirm)
 }
+
+// GroveProviders is an interface to abstract ListProvidersResponse for the delete prompt.
+type GroveProviders interface {
+	ProviderCount() int
+	ProviderNames() []string
+}
+
+// ShowGroveDeletePrompt displays the grove deletion confirmation.
+// Returns true if the user confirms, false otherwise.
+func ShowGroveDeletePrompt(groveName string, agentCount int, providers GroveProviders, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Printf("This will permanently delete grove '%s' from the Hub.\n", groveName)
+	fmt.Println()
+	fmt.Println("The following will be removed:")
+	if agentCount > 0 {
+		fmt.Printf("  - %d agent(s)\n", agentCount)
+	} else {
+		fmt.Println("  - 0 agents")
+	}
+	if providers != nil && providers.ProviderCount() > 0 {
+		fmt.Printf("  - %d broker provider association(s):\n", providers.ProviderCount())
+		for _, name := range providers.ProviderNames() {
+			fmt.Printf("      %s\n", name)
+		}
+	}
+	fmt.Println()
+	fmt.Println("This action cannot be undone.")
+	fmt.Println()
+	// Default NO for safety - destructive operation
+	return ConfirmAction("Delete this grove?", false, autoConfirm)
+}

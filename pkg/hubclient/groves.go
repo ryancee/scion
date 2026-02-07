@@ -125,6 +125,26 @@ type ListProvidersResponse struct {
 	Providers []GroveProvider `json:"providers"`
 }
 
+// ProviderCount returns the number of providers.
+func (r *ListProvidersResponse) ProviderCount() int {
+	if r == nil {
+		return 0
+	}
+	return len(r.Providers)
+}
+
+// ProviderNames returns the broker names of all providers.
+func (r *ListProvidersResponse) ProviderNames() []string {
+	if r == nil {
+		return nil
+	}
+	names := make([]string, len(r.Providers))
+	for i, p := range r.Providers {
+		names[i] = p.BrokerName
+	}
+	return names
+}
+
 // AddProviderRequest is the request for adding a broker as a grove provider.
 type AddProviderRequest struct {
 	BrokerID  string `json:"brokerId"`

@@ -48,10 +48,52 @@ var hubStatusCmd = &cobra.Command{
 
 // hubGrovesCmd lists groves on the Hub
 var hubGrovesCmd = &cobra.Command{
-	Use:   "groves",
-	Short: "List groves on the Hub",
-	Long:  `List groves registered on the Hub that you have access to.`,
-	RunE:  runHubGroves,
+	Use:     "groves",
+	Aliases: []string{"grove"},
+	Short:   "List groves on the Hub",
+	Long:    `List groves registered on the Hub that you have access to.`,
+	RunE:    runHubGroves,
+}
+
+// hubGrovesInfoCmd shows detailed information about a grove
+var hubGrovesInfoCmd = &cobra.Command{
+	Use:   "info <grove-name>",
+	Short: "Show detailed information about a grove",
+	Long: `Show detailed information about a grove on the Hub.
+
+Displays grove metadata including creation date, broker providers,
+and agent count.
+
+Examples:
+  # Show info for a grove by name
+  scion hub groves info my-project
+
+  # Output as JSON
+  scion hub groves info my-project --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runHubGrovesInfo,
+}
+
+// hubGrovesDeleteCmd deletes a grove from the Hub
+var hubGrovesDeleteCmd = &cobra.Command{
+	Use:   "delete <grove-name>",
+	Short: "Delete a grove from the Hub",
+	Long: `Delete a grove from the Hub.
+
+This will remove the grove and all associated broker provider relationships.
+Agents within the grove will also be deleted unless --preserve-agents is set.
+
+Examples:
+  # Delete a grove (with confirmation)
+  scion hub groves delete my-project
+
+  # Delete without confirmation
+  scion hub groves delete my-project -y
+
+  # Delete grove but preserve agents
+  scion hub groves delete my-project --preserve-agents`,
+	Args: cobra.ExactArgs(1),
+	RunE: runHubGrovesDelete,
 }
 
 // hubBrokersCmd lists runtime brokers on the Hub
@@ -134,6 +176,10 @@ Examples:
 	RunE: runHubUnlink,
 }
 
+var (
+	hubGrovesDeletePreserveAgents bool
+)
+
 func init() {
 	rootCmd.AddCommand(hubCmd)
 	hubCmd.AddCommand(hubStatusCmd)
@@ -144,10 +190,19 @@ func init() {
 	hubCmd.AddCommand(hubLinkCmd)
 	hubCmd.AddCommand(hubUnlinkCmd)
 
+	// Grove subcommands
+	hubGrovesCmd.AddCommand(hubGrovesInfoCmd)
+	hubGrovesCmd.AddCommand(hubGrovesDeleteCmd)
+
 	// Common flags
 	hubStatusCmd.Flags().BoolVar(&hubOutputJSON, "json", false, "Output in JSON format")
 	hubGrovesCmd.Flags().BoolVar(&hubOutputJSON, "json", false, "Output in JSON format")
 	hubBrokersCmd.Flags().BoolVar(&hubOutputJSON, "json", false, "Output in JSON format")
+
+	// Grove subcommand flags
+	hubGrovesInfoCmd.Flags().BoolVar(&hubOutputJSON, "json", false, "Output in JSON format")
+	hubGrovesDeleteCmd.Flags().BoolVarP(&autoConfirm, "yes", "y", false, "Skip confirmation prompt")
+	hubGrovesDeleteCmd.Flags().BoolVar(&hubGrovesDeletePreserveAgents, "preserve-agents", false, "Preserve agents when deleting grove")
 }
 
 // authInfo describes the authentication method being used
@@ -660,6 +715,202 @@ func runHubGroves(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runHubGrovesInfo(cmd *cobra.Command, args []string) error {
+	groveName := args[0]
+
+	// Resolve grove path to find project settings
+	resolvedPath, _, err := config.ResolveGrovePath(grovePath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve grove path: %w", err)
+	}
+
+	settings, err := config.LoadSettings(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("failed to load settings: %w", err)
+	}
+
+	client, err := getHubClient(settings)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Find the grove by name
+	grove, err := findGroveByName(ctx, client, groveName)
+	if err != nil {
+		return err
+	}
+
+	// Get providers for this grove
+	providersResp, err := client.Groves().ListProviders(ctx, grove.ID)
+	if err != nil {
+		// Non-fatal: we can still show grove info without providers
+		util.Debugf("Failed to get providers: %v", err)
+	}
+
+	if hubOutputJSON {
+		output := map[string]interface{}{
+			"id":         grove.ID,
+			"name":       grove.Name,
+			"slug":       grove.Slug,
+			"gitRemote":  grove.GitRemote,
+			"visibility": grove.Visibility,
+			"agentCount": grove.AgentCount,
+			"created":    grove.Created,
+			"updated":    grove.Updated,
+			"createdBy":  grove.CreatedBy,
+			"ownerId":    grove.OwnerID, // TODO: resolve to user display name when available
+		}
+		if grove.DefaultRuntimeBrokerID != "" {
+			output["defaultRuntimeBrokerId"] = grove.DefaultRuntimeBrokerID
+		}
+		if len(grove.Labels) > 0 {
+			output["labels"] = grove.Labels
+		}
+		if providersResp != nil && len(providersResp.Providers) > 0 {
+			output["providers"] = providersResp.Providers
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	// Text output
+	fmt.Println("Grove Information")
+	fmt.Println("=================")
+	fmt.Printf("ID:          %s\n", grove.ID)
+	fmt.Printf("Name:        %s\n", grove.Name)
+	fmt.Printf("Slug:        %s\n", grove.Slug)
+	if grove.GitRemote != "" {
+		fmt.Printf("Git Remote:  %s\n", grove.GitRemote)
+	}
+	fmt.Printf("Visibility:  %s\n", valueOrDefault(grove.Visibility, "private"))
+	fmt.Printf("Agents:      %d\n", grove.AgentCount)
+	fmt.Printf("Created:     %s\n", grove.Created.Format(time.RFC3339))
+	if !grove.Updated.IsZero() && grove.Updated != grove.Created {
+		fmt.Printf("Updated:     %s\n", grove.Updated.Format(time.RFC3339))
+	}
+	// TODO: Resolve owner ID to display name when user lookup is available
+	if grove.OwnerID != "" {
+		fmt.Printf("Owner:       %s (TODO: resolve to display name)\n", grove.OwnerID)
+	}
+
+	// Show providers
+	if providersResp != nil && len(providersResp.Providers) > 0 {
+		fmt.Println()
+		fmt.Println("Broker Providers")
+		fmt.Println("----------------")
+		for _, p := range providersResp.Providers {
+			statusIndicator := ""
+			if p.Status == "online" {
+				statusIndicator = "[online]"
+			} else {
+				statusIndicator = fmt.Sprintf("[%s]", p.Status)
+			}
+			fmt.Printf("  - %s %s\n", p.BrokerName, statusIndicator)
+			if !p.LinkedAt.IsZero() {
+				fmt.Printf("    Linked: %s\n", p.LinkedAt.Format(time.RFC3339))
+			}
+		}
+	} else {
+		fmt.Println()
+		fmt.Println("Broker Providers: none")
+	}
+
+	return nil
+}
+
+func runHubGrovesDelete(cmd *cobra.Command, args []string) error {
+	groveName := args[0]
+
+	// Resolve grove path to find project settings
+	resolvedPath, _, err := config.ResolveGrovePath(grovePath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve grove path: %w", err)
+	}
+
+	settings, err := config.LoadSettings(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("failed to load settings: %w", err)
+	}
+
+	client, err := getHubClient(settings)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Find the grove by name
+	grove, err := findGroveByName(ctx, client, groveName)
+	if err != nil {
+		return err
+	}
+
+	// Get providers for display in confirmation
+	providersResp, err := client.Groves().ListProviders(ctx, grove.ID)
+	if err != nil {
+		util.Debugf("Failed to get providers: %v", err)
+	}
+
+	// Show confirmation prompt
+	if !hubsync.ShowGroveDeletePrompt(grove.Name, grove.AgentCount, providersResp, autoConfirm) {
+		return fmt.Errorf("deletion cancelled")
+	}
+
+	// Delete the grove
+	deleteAgents := !hubGrovesDeletePreserveAgents
+	if err := client.Groves().Delete(ctx, grove.ID, deleteAgents); err != nil {
+		return fmt.Errorf("failed to delete grove: %w", err)
+	}
+
+	fmt.Printf("Grove '%s' deleted successfully.\n", grove.Name)
+	if deleteAgents {
+		fmt.Printf("Deleted %d agent(s).\n", grove.AgentCount)
+	}
+	if providersResp != nil && len(providersResp.Providers) > 0 {
+		fmt.Printf("Removed %d broker provider association(s).\n", len(providersResp.Providers))
+	}
+
+	return nil
+}
+
+// findGroveByName finds a grove by name (case-insensitive) and returns it.
+// Returns an error if not found or multiple matches are found.
+func findGroveByName(ctx context.Context, client hubclient.Client, name string) (*hubclient.Grove, error) {
+	resp, err := client.Groves().List(ctx, &hubclient.ListGrovesOptions{
+		Name: name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for grove: %w", err)
+	}
+
+	if len(resp.Groves) == 0 {
+		return nil, fmt.Errorf("grove '%s' not found", name)
+	}
+
+	if len(resp.Groves) > 1 {
+		fmt.Printf("Multiple groves found with name '%s':\n", name)
+		for _, g := range resp.Groves {
+			fmt.Printf("  - %s (ID: %s)\n", g.Name, g.ID)
+		}
+		return nil, fmt.Errorf("ambiguous grove name - please use the grove ID instead")
+	}
+
+	return &resp.Groves[0], nil
+}
+
+// valueOrDefault returns value if non-empty, otherwise returns the default.
+func valueOrDefault(value, defaultVal string) string {
+	if value == "" {
+		return defaultVal
+	}
+	return value
 }
 
 func runHubBrokers(cmd *cobra.Command, args []string) error {
