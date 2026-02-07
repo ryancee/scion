@@ -20,6 +20,15 @@ var logsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 
+		// Check if Hub is enabled - logs command is not yet supported with Hub
+		hubCtx, err := CheckHubAvailabilitySimple(grovePath)
+		if err != nil {
+			return err
+		}
+		if hubCtx != nil {
+			return fmt.Errorf("logs command is not yet supported when using Hub integration\n\nTo view logs locally, use: scion --no-hub logs %s", agentName)
+		}
+
 		effectiveProfile := profile
 		if effectiveProfile == "" {
 			effectiveProfile = agent.GetSavedRuntime(agentName, grovePath)
@@ -27,30 +36,34 @@ var logsCmd = &cobra.Command{
 
 		rt := runtime.GetRuntime(grovePath, effectiveProfile)
 
-		// 1. Try to find the agent to get its grove path
+		// Find the agent to get its grove path
 		agents, err := rt.List(context.Background(), map[string]string{
 			"scion.agent": "true",
 			"scion.name":  agentName,
 		})
-
-		if err == nil && len(agents) > 0 {
-			a := agents[0]
-			if a.GrovePath != "" {
-				agentLogPath := filepath.Join(a.GrovePath, "agents", agentName, "home", "agent.log")
-				if data, err := os.ReadFile(agentLogPath); err == nil {
-					fmt.Print(string(data))
-					return nil
-				}
-			}
-		}
-
-		// 2. Fallback to container logs if file not found or List failed
-		logs, err := rt.GetLogs(context.Background(), agentName)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to find agent %s: %w", agentName, err)
+		}
+		if len(agents) == 0 {
+			return fmt.Errorf("agent %s not found", agentName)
 		}
 
-		fmt.Println(logs)
+		a := agents[0]
+		if a.GrovePath == "" {
+			return fmt.Errorf("agent %s has no grove path configured", agentName)
+		}
+
+		agentLogPath := filepath.Join(a.GrovePath, "agents", agentName, "home", "agent.log")
+		if _, err := os.Stat(agentLogPath); os.IsNotExist(err) {
+			return fmt.Errorf("log file not found: %s\n\nThe agent may not have started yet or does not produce logs", agentLogPath)
+		}
+
+		data, err := os.ReadFile(agentLogPath)
+		if err != nil {
+			return fmt.Errorf("failed to read log file: %w", err)
+		}
+
+		fmt.Print(string(data))
 		return nil
 	},
 }
