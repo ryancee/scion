@@ -45,7 +45,6 @@ export default defineConfig({
 							items: [
 								{ label: 'Templates', slug: 'guides/templates' },
 								{ label: 'Tmux Sessions', slug: 'guides/tmux' },
-								{ label: 'Observability', slug: 'guides/observability' },
 							],
 						},
 					],
@@ -55,10 +54,11 @@ export default defineConfig({
 					items: [
 						{ label: 'Local Governance', slug: 'guides/local-governance' },
 						{ label: 'Hub Setup', slug: 'guides/hub-server' },
-						{ label: 'Runtimes', slug: 'guides/runtimes' },
+						{ label: 'Runtime Broker', slug: 'guides/runtime-broker' },
 						{ label: 'Kubernetes', slug: 'guides/kubernetes' },
 						{ label: 'Security', slug: 'guides/auth' },
 						{ label: 'Permissions', slug: 'guides/permissions' },
+						{ label: 'Observability', slug: 'guides/observability' },
 						{ label: 'Metrics', slug: 'guides/metrics' },
 					],
 				},

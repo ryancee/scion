@@ -3,35 +3,86 @@ title: Observability
 description: Monitoring agents with logs and metrics.
 ---
 
-Scion provides comprehensive observability for agent containers through the `sciontool` telemetry pipeline. This guide covers how to monitor agent activity, collect logs, and integrate with observability platforms.
+Scion provides comprehensive observability for agent containers and system components through the `sciontool` telemetry pipeline and OpenTelemetry log bridging. This guide covers how to monitor agent activity, collect logs, and integrate with cloud-native observability platforms like Google Cloud Logging and Trace.
 
 ## Architecture Overview
+
+Scion's observability architecture follows a "forwarder" pattern where `sciontool` acts as a local collector inside each agent container, and system components (Hub and Broker) bridge their logs directly to a central backend.
 
 ```
 ┌─────────────────────────────────────────┐
 │           Agent Container               │
 │                                         │
 │  ┌─────────────┐                       │
-│  │   Agent     │ OTLP                  │
+│  │   Agent     │ OTLP (localhost:4317) │
 │  │  (Claude/   │───────┐               │
 │  │   Gemini)   │       │               │
 │  └─────────────┘       │               │
 │                        ▼               │
 │              ┌─────────────────┐       │
 │              │   sciontool     │       │
-│              │   telemetry     │       │
-│              │   pipeline      │       │
+│              │   forwarder     │       │
 │              └────────┬────────┘       │
-│                       │ Traces, Metrics,│
-│                       │ Correlated Logs │
-└───────────────────────┼─────────────────┘
+│                       │                │
+│                       │ OTLP (Cloud)   │
+└───────────────────────┼────────────────┘
                         │
                         ▼
               ┌─────────────────┐
               │  Cloud Backend  │
-              │  (GCP, OTLP)    │
+              │ (Logging/Trace) │
               └─────────────────┘
+                        ▲
+                        │ OTLP (Cloud)
+              ┌─────────┴─────────┐
+              │    System Logs    │
+              │  (Hub & Broker)   │
+              └───────────────────┘
 ```
+
+## Administrator Setup: Cloud Logging
+
+To centralize logs and traces from all Scion components in Google Cloud, you must configure the OTLP endpoints and project identifiers.
+
+### Connecting Hub and Broker Logs
+
+The Scion Hub and Runtime Broker use structured logging (`slog`) with an OpenTelemetry bridge. To enable log forwarding to Google Cloud:
+
+1.  **Configure Environment Variables**: Set the following on your Hub and Broker server processes:
+
+    ```bash
+    # Enable OTel log forwarding
+    export SCION_OTEL_LOG_ENABLED=true
+
+    # Set the GCP OTLP endpoint (standard for Cloud Trace/Logging)
+    export SCION_OTEL_ENDPOINT="monitoring.googleapis.com:443"
+
+    # Specify your GCP Project ID
+    export SCION_GCP_PROJECT_ID="your-project-id"
+    ```
+
+2.  **Authentication**: Ensure the service account running the Hub/Broker has the following IAM roles:
+    - `roles/logging.logWriter`
+    - `roles/cloudtrace.agent`
+    - `roles/monitoring.metricWriter`
+
+### Configuring Agent Telemetry
+
+Agents use `sciontool` as their init process, which includes an embedded OTLP forwarder. This forwarder must be configured to point to your cloud backend.
+
+As an administrator, the most effective way to configure this is via **Hub Environment Variables**. When configured at the Grove or Broker level on the Hub, these variables are automatically injected into every agent container.
+
+1.  **Set Grove/Broker Variables on the Hub**:
+    ```bash
+    SCION_OTEL_ENDPOINT="monitoring.googleapis.com:443"
+    SCION_GCP_PROJECT_ID="your-project-id"
+    SCION_TELEMETRY_ENABLED="true"
+    ```
+
+2.  **Harness-Specific Configuration**: If you are using agents that natively support OpenTelemetry (like `opencode`), you may need to explicitly tell the agent where to find the `sciontool` forwarder (which is `localhost` from the agent's perspective):
+
+    - **gRPC (Default)**: `OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317"`
+    - **HTTP**: `OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"`
 
 ## Agent Logs
 
@@ -41,40 +92,15 @@ Agent logs are written to `/home/scion/agent.log` inside the container. The scio
 
 The `sciontool` utility ensures that `agent.log` is owned by the `scion` user during initialization, even if `sciontool` is initially run as root. The log file is created with permissive `0666` permissions to ensure multiple processes can contribute to the log stream.
 
-If the primary log location is not writable, `sciontool` will automatically fall back to `/tmp/agent.log` and enable debug logging.
-
 ### Log Levels
 
 - **INFO**: Normal operational events
 - **ERROR**: Critical failures
-- **DEBUG**: Detailed information (enabled with `SCION_DEBUG=true` or `--log-level=debug`)
-
-### Log Format
-
-Logs from `sciontool` and shared packages using `slog` are unified:
-
-```
-2026-02-05 10:30:00 [sciontool] [INFO] Telemetry pipeline started (gRPC: 4317, HTTP: 4318)
-2026-02-05 10:30:01 [sciontool] [INFO] Running pre-start hooks...
-```
-
-### Viewing Logs
-
-From inside the container:
-
-```bash
-tail -f /home/scion/agent.log
-```
-
-From the host (if volume mounted):
-
-```bash
-tail -f /path/to/agent-home/agent.log
-```
+- **DEBUG**: Detailed information (enabled with `SCION_DEBUG=true` or `SCION_LOG_LEVEL=debug`)
 
 ## Telemetry Collection
 
-The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) data from agents. See the [Metrics & OpenTelemetry guide](/guides/metrics) for configuration details.
+The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) data from agents. See the [Metrics & OpenTelemetry guide](/guides/metrics) for deep configuration details.
 
 ### What's Collected
 
@@ -85,107 +111,34 @@ The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) d
 | Correlated Logs | sciontool | Log records linked to traces for every hook event |
 | Hook Events | Harness hooks | Tool calls, prompts, model invocations converted to spans |
 | Session Metrics | Gemini session files | Token counts, turn counts, tool statistics |
-| Lifecycle Events | sciontool | Pre-start, post-start, pre-stop, session-end |
-| Status Updates | sciontool | Agent state changes |
-| System Logs | Hub/Runtime Broker | Structured logs via OTel bridge |
 
 ### Privacy Controls
 
-By default, user prompts (`agent.user.prompt`) are excluded from telemetry to protect privacy. Additionally, sensitive attributes are automatically redacted or hashed. See [Privacy Filtering](/guides/metrics#privacy-filtering) and [Attribute Redaction](/guides/metrics#attribute-redaction) for customization.
+By default, user prompts (`agent.user.prompt`) are excluded from telemetry to protect privacy. Additionally, sensitive attributes are automatically redacted or hashed.
 
-### Session Metrics (Gemini)
+- **Redacted**: `prompt`, `user.email`, `tool_output`, `tool_input`
+- **Hashed**: `session_id`
 
-For Gemini CLI agents, sciontool automatically parses session files on session completion to extract:
+## Troubleshooting for Admins
 
-- **Token usage**: Input, output, and cached tokens
-- **Session info**: Turn count, duration, model used
-- **Tool statistics**: Per-tool call counts, success/error rates
+### Logs Not Appearing in GCP
 
-These metrics are included as attributes on the `agent.session.end` span.
+1.  **Verify Endpoints**: Ensure `SCION_OTEL_ENDPOINT` is set to `monitoring.googleapis.com:443`.
+2.  **Check Permissions**: Verify the Workload Identity or Service Account has `roles/logging.logWriter`.
+3.  **Inspect Agent Init**: View the agent container logs (stderr) to see if `sciontool` reported a telemetry startup failure:
+    ```
+    [sciontool] ERROR: Failed to start telemetry: connection refused
+    ```
+4.  **Network Policy**: If running in Kubernetes, ensure Egress is allowed to GCP APIs.
 
-### OTel Log Bridge (Hub & Runtime Broker)
+### Missing Trace Correlation
 
-The Hub and Runtime Broker servers can forward their internal logs to an OTLP endpoint using the OpenTelemetry log bridge pattern:
-
-```bash
-# Enable OTel log forwarding
-export SCION_OTEL_LOG_ENABLED=true
-export SCION_OTEL_ENDPOINT="monitoring.googleapis.com:443"
-```
-
-This allows system component logs to appear alongside agent traces in your observability backend. The log bridge runs in parallel with local logging - both destinations receive all log records.
-
-## Integration Points
-
-### Google Cloud
-
-For GCP deployments, sciontool can forward telemetry to:
-
-- **Cloud Trace**: Distributed tracing for agent operations
-- **Cloud Logging**: Centralized log aggregation
-
-See [Metrics & OpenTelemetry - Google Cloud](/guides/metrics#google-cloud) for setup.
-
-### Self-Hosted Collectors
-
-For on-premise or multi-cloud deployments, forward to any OTLP-compatible collector:
-
-```bash
-export SCION_OTEL_ENDPOINT="otel-collector.internal:4317"
-```
-
-## Monitoring Agent Health
-
-### Status Files
-
-Agents maintain status in `~/agent-info.json`:
-
-```json
-{
-  "status": "running",
-  "startedAt": "2026-02-05T10:30:00Z",
-  "lastActivity": "2026-02-05T10:35:00Z"
-}
-```
-
-### Hub Integration (Hosted Mode)
-
-In hosted mode, agents report status to the Scion Hub via heartbeats. The Hub tracks:
-
-- Agent status (starting, running, idle, stopping)
-- Session metrics (token counts, tool usage)
-- Error counts
-
-## Troubleshooting
-
-### Agent Not Producing Logs
-
-1. Check that the agent home directory exists and is writable
-2. Verify the agent process is running
-3. Check for permission issues on the log file
-
-### Telemetry Not Forwarding
-
-1. Verify `SCION_TELEMETRY_ENABLED=true`
-2. Check `SCION_OTEL_ENDPOINT` is set correctly
-3. Look for error messages in agent logs:
-   ```
-   [sciontool] ERROR: Failed to start telemetry: ...
-   ```
-
-### High Telemetry Volume
-
-Use filtering to reduce volume:
-
-```bash
-# Only forward specific event types
-export SCION_TELEMETRY_FILTER_INCLUDE="agent.session.start,agent.session.end"
-
-# Or exclude high-volume events
-export SCION_TELEMETRY_FILTER_EXCLUDE="agent.tool.result,gen_ai.api.request"
-```
+If you see logs but they aren't linked to traces in the Cloud Trace waterfall:
+1.  Ensure the agent is using the `sciontool` gRPC port (4317).
+2.  Verify `SCION_OTEL_LOG_ENABLED=true` is set on the system components.
 
 ## Related Guides
 
 - [Metrics & OpenTelemetry](/guides/metrics) - Detailed telemetry configuration
 - [Hub Server](/guides/hub-server) - Hub integration for hosted mode
+- [Runtime Broker](/guides/runtime-broker) - Broker setup and configuration

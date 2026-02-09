@@ -116,12 +116,29 @@ Manages connection to and interaction with a Scion Hub.
 - `scion hub status`: Show the current Hub connection status and authentication details.
     - Flags: `--json` (Output in JSON format)
 - `scion hub auth login`: Authenticate against the Hub (opens a browser).
-- `scion hub register [grove-path]`: Register the current broker and grove with the Hub.
+- `scion hub link`: Link the current local grove to the Hub. Matches by git remote or name.
+- `scion hub unlink`: Unlink the current grove from the Hub locally.
 - `scion hub enable`: Enable Hub integration for agent operations.
 - `scion hub disable`: Disable Hub integration, falling back to local-only mode.
 - `scion hub groves`: List all groves registered on the Hub.
+    - `info [name]`: Show detailed information for a grove.
+    - `delete [name]`: Delete a grove from the Hub.
 - `scion hub brokers`: List all runtime brokers registered on the Hub.
 - `scion hub secret`: Manage secrets on the Hub.
     - `set <key>=<value>`: Set a secret for the current grove.
     - `list`: List secrets for the current grove.
     - `remove <key>`: Remove a secret.
+
+## `scion broker`
+
+Manages the local host as a Runtime Broker.
+
+- `scion broker status`: Show status of the local broker server and Hub registration.
+- `scion broker start`: Start the broker server as a background daemon.
+    - Flags: `--foreground` (Run in current terminal), `--port` (Custom API port).
+- `scion broker stop`: Stop the broker daemon.
+- `scion broker register`: Register this host as a Runtime Broker with the Hub.
+- `scion broker deregister`: Remove this broker's registration from the Hub.
+- `scion broker provide`: Add this broker as a provider for a grove (enables agent execution for that grove).
+- `scion broker withdraw`: Remove this broker as a provider from a grove.
+

@@ -12,6 +12,13 @@ An **Agent** is an isolated container running an LLM-driven task. It acts as an 
 ### Grove
 A **Grove** (or **Group**) is a project workspace where agents live. It corresponds to a `.scion` directory on the filesystem. It can exist at the project level (generally located at the root of a git repository), or globally in the users home folder.
 
+### Hub
+The **Hub** is the central control plane of a hosted Scion architecture. It acts as the "brain" of the system, coordinating state across multiple users, groves, and runtime brokers.
+- **Identity & Auth**: Manages user identities (via OAuth) and issues tokens for brokers and agents.
+- **State Persistence**: Stores the definitive state of agents, groves, and templates in a central database.
+- **Orchestration**: Dispatches agent lifecycle commands to the appropriate Runtime Brokers.
+- **Collaboration**: Provides a shared view of the system via the Web Dashboard and Hub API.
+
 ### Profile
 A **Profile** defines a complete execution environment by binding a specific **Runtime** to a set of behavior flags (like `tmux` support) and **Harness** configuration overrides.
 - Profiles allow you to switch between different environments (e.g., "Local Docker", "Production Kubernetes") without modifying agent templates.
@@ -36,6 +43,12 @@ The **Runtime** is the infrastructure layer responsible for executing the agent 
 - **Docker**: The standard runtime for Linux and macOS.
 - **Apple Container**: Uses the native Virtualization Framework on macOS for improved performance.
 - **Kubernetes**: (Experimental) Allows running agents as Pods in a Kubernetes cluster, enabling remote execution and scaling.
+
+### Runtime Broker
+A **Runtime Broker** is a compute node (e.g., a server, laptop, or K8s cluster) that registers with a **Scion Hub** to provide execution capacity.
+- It manages the local lifecycle of agents dispatched from the Hub.
+- It handles workspace synchronization, template hydration, and log streaming.
+- For more details, see the [Runtime Broker Guide](/guides/runtime-broker/).
 
 ## Detailed Architecture
 

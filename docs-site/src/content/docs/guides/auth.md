@@ -104,6 +104,31 @@ Alternatively, you can set the token in your environment:
 export SCION_DEV_TOKEN=scion_dev_...
 ```
 
+## Runtime Broker Security
+
+Runtime Brokers use a robust security model to ensure that only authorized Hubs can dispatch commands and that agents remain isolated.
+
+### HMAC-Based Authentication
+
+Communication between the Hub and a Runtime Broker (in both directions) is secured using **HMAC-SHA256 request signing**. This provides several security benefits:
+- **Mutual Authentication**: Both parties prove they possess the shared secret.
+- **Payload Integrity**: The request body is included in the signature, preventing tampering.
+- **Replay Protection**: Every request includes a timestamp and a unique nonce.
+
+A shared secret is established during the `scion broker register` flow and is stored locally in `~/.scion/broker-credentials.json`.
+
+### Provider Authorization
+
+The Hub enforces a "Provider" model for authorization. Even if a broker is authenticated, it will only receive agent dispatch requests for **Groves** that it has been explicitly registered to provide for. This prevents a compromised broker from accessing projects it shouldn't have access to.
+
+### Secret Management
+
+Brokers never store agent secrets (like API keys) on disk.
+1. The Hub retrieves secrets from its encrypted store.
+2. The Hub includes the resolved secrets in the `CreateAgent` command sent to the Broker.
+3. The Broker injects these secrets directly into the agent container's memory.
+4. When the agent is deleted, the secrets are purged from the host.
+
 ## CLI Authentication
 
 Users can authenticate the CLI against a Scion Hub using the following flow:
