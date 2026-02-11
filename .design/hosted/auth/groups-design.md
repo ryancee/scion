@@ -1052,11 +1052,11 @@ All principal and group operations are logged:
 ## 13. Implementation Phases
 
 ### Phase 1: Ent Schema Foundation
-- [ ] Initialize Ent project structure in `pkg/ent/`
-- [ ] Define schemas for User, Agent, Group, GroupMembership, PolicyBinding, Grove
-- [ ] Run code generation and verify schema compilation
-- [ ] Write Ent client initialization (SQLite for dev, PostgreSQL for prod)
-- [ ] Implement database migration via Ent auto-migration
+- [x] Initialize Ent project structure in `pkg/ent/`
+- [x] Define schemas for User, Agent, Group, GroupMembership, PolicyBinding, Grove
+- [x] Run code generation and verify schema compilation
+- [x] Write Ent client initialization (SQLite for dev, PostgreSQL for prod)
+- [x] Implement database migration via Ent auto-migration
 
 ### Phase 2: Group Operations
 - [ ] Implement explicit group CRUD using Ent client
