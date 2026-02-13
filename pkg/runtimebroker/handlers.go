@@ -16,6 +16,7 @@ package runtimebroker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -547,6 +548,18 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 
+	// Read optional task from request body
+	var startReq struct {
+		Task string `json:"task"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&startReq); err != nil {
+			slog.Debug("No task in start request body (ignoring decode error)", "error", err)
+		}
+	}
+
+	slog.Debug("startAgent called", "id", id, "task", startReq.Task)
+
 	// Look up the agent to find its grove path
 	agents, err := s.manager.List(ctx, map[string]string{"scion.agent": "true"})
 	if err != nil {
@@ -566,6 +579,7 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 	// by finding the agent's scion-agent.json config file
 	opts := api.StartOptions{
 		Name: id,
+		Task: startReq.Task,
 	}
 
 	if existingAgent != nil && existingAgent.GrovePath != "" {

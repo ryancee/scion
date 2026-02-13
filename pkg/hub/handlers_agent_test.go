@@ -625,7 +625,7 @@ func (d *createAgentDispatcher) DispatchAgentProvision(_ context.Context, agent 
 	agent.Status = store.AgentStatusCreated
 	return nil
 }
-func (d *createAgentDispatcher) DispatchAgentStart(_ context.Context, _ *store.Agent) error {
+func (d *createAgentDispatcher) DispatchAgentStart(_ context.Context, _ *store.Agent, _ string) error {
 	return nil
 }
 func (d *createAgentDispatcher) DispatchAgentStop(_ context.Context, _ *store.Agent) error {

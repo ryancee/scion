@@ -964,7 +964,7 @@ func (d *agentDispatcherAdapter) DispatchAgentCreate(ctx context.Context, hubAge
 
 // DispatchAgentStart implements hub.AgentDispatcher.
 // For co-located runtime brokers, this resumes a stopped agent.
-func (d *agentDispatcherAdapter) DispatchAgentStart(ctx context.Context, hubAgent *store.Agent) error {
+func (d *agentDispatcherAdapter) DispatchAgentStart(ctx context.Context, hubAgent *store.Agent, task string) error {
 	// For now, starting an existing agent is not fully supported in the manager
 	// The manager's Start method creates new agents, not resumes existing ones
 	// TODO: Implement proper agent resume functionality in the manager

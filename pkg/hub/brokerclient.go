@@ -147,10 +147,19 @@ func (c *AuthenticatedBrokerClient) CreateAgent(ctx context.Context, brokerID, b
 }
 
 // StartAgent starts an agent on a remote runtime broker with HMAC authentication.
-func (c *AuthenticatedBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string) error {
+func (c *AuthenticatedBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task string) error {
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/start", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))
 
-	resp, err := c.doRequest(ctx, brokerID, http.MethodPost, endpoint, nil)
+	var body []byte
+	if task != "" {
+		var err error
+		body, err = json.Marshal(map[string]string{"task": task})
+		if err != nil {
+			return fmt.Errorf("failed to marshal task: %w", err)
+		}
+	}
+
+	resp, err := c.doRequest(ctx, brokerID, http.MethodPost, endpoint, body)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

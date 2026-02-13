@@ -125,7 +125,7 @@ func (d *mockDispatcher) DispatchAgentProvision(_ context.Context, agent *store.
 	agent.Status = store.AgentStatusCreated
 	return nil
 }
-func (d *mockDispatcher) DispatchAgentStart(_ context.Context, agent *store.Agent) error {
+func (d *mockDispatcher) DispatchAgentStart(_ context.Context, agent *store.Agent, _ string) error {
 	d.startedAgents = append(d.startedAgents, agent)
 	return nil
 }

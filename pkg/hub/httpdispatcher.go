@@ -100,7 +100,7 @@ func (c *HTTPRuntimeBrokerClient) CreateAgent(ctx context.Context, brokerID, bro
 
 // StartAgent starts an agent on a remote runtime broker.
 // Note: brokerID is unused in this unauthenticated client.
-func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string) error {
+func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task string) error {
 	_ = brokerID // Unused in unauthenticated client
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/start", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))
 
@@ -108,9 +108,21 @@ func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brok
 		slog.Debug("Dispatcher request", "method", "POST", "endpoint", endpoint)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	var body io.Reader
+	if task != "" {
+		payload, err := json.Marshal(map[string]string{"task": task})
+		if err != nil {
+			return fmt.Errorf("failed to marshal task: %w", err)
+		}
+		body = bytes.NewReader(payload)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
+	}
+	if task != "" {
+		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := c.client.Do(httpReq)
@@ -530,7 +542,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentProvision(ctx context.Context, agent 
 }
 
 // DispatchAgentStart starts an agent on the runtime broker.
-func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *store.Agent) error {
+func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *store.Agent, task string) error {
 	if agent.RuntimeBrokerID == "" {
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
@@ -540,8 +552,13 @@ func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *sto
 		return err
 	}
 
+	// If no explicit task provided, fall back to the agent's applied config task
+	if task == "" && agent.AppliedConfig != nil {
+		task = agent.AppliedConfig.Task
+	}
+
 	// Use agent name as identifier (runtime broker uses name or ID)
-	return d.client.StartAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name)
+	return d.client.StartAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name, task)
 }
 
 // DispatchAgentStop stops an agent on the runtime broker.

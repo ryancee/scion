@@ -343,7 +343,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Dispatch start action
-		if err := dispatcher.DispatchAgentStart(ctx, existingAgent); err != nil {
+		if err := dispatcher.DispatchAgentStart(ctx, existingAgent, req.Task); err != nil {
 			RuntimeError(w, "Failed to start agent: "+err.Error())
 			return
 		}
@@ -499,12 +499,12 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Dispatch to runtime broker if available.
-	// Unless ProvisionOnly is set (scion create), do a full create+start (DispatchAgentCreate).
-	// ProvisionOnly dispatches DispatchAgentProvision — sets up dirs, worktree,
-	// templates without launching the container. Task is written to prompt.md if provided.
+	// When a task or attach mode is requested (and not provision-only), do a full
+	// create+start via DispatchAgentCreate. Otherwise provision only — set up dirs,
+	// worktree, templates without launching the container.
 	var warnings []string
 	if dispatcher := s.GetDispatcher(); dispatcher != nil {
-		if !req.ProvisionOnly {
+		if (req.Task != "" || req.Attach) && !req.ProvisionOnly {
 			if err := dispatcher.DispatchAgentCreate(ctx, agent); err != nil {
 				// Log the error but don't fail the request - agent is created in Hub
 				warnings = append(warnings, "Failed to dispatch to runtime broker: "+err.Error())
@@ -979,7 +979,7 @@ func (s *Server) handleAgentLifecycle(w http.ResponseWriter, r *http.Request, id
 	case "start":
 		newStatus = store.AgentStatusRunning
 		if dispatcher != nil && agent.RuntimeBrokerID != "" {
-			dispatchErr = dispatcher.DispatchAgentStart(ctx, agent)
+			dispatchErr = dispatcher.DispatchAgentStart(ctx, agent, "")
 		}
 	case "stop":
 		newStatus = store.AgentStatusStopped
@@ -1709,7 +1709,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 			}
 
 			// Agent exists and has a prompt (or attach requested) - dispatch start action
-			if err := dispatcher.DispatchAgentStart(ctx, existingAgent); err != nil {
+			if err := dispatcher.DispatchAgentStart(ctx, existingAgent, ""); err != nil {
 				RuntimeError(w, "Failed to start agent: "+err.Error())
 				return
 			}

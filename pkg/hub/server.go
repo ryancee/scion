@@ -120,7 +120,8 @@ type AgentDispatcher interface {
 	DispatchAgentProvision(ctx context.Context, agent *store.Agent) error
 
 	// DispatchAgentStart resumes a stopped agent on the runtime broker.
-	DispatchAgentStart(ctx context.Context, agent *store.Agent) error
+	// task is an optional task string to pass to the agent on start.
+	DispatchAgentStart(ctx context.Context, agent *store.Agent, task string) error
 
 	// DispatchAgentStop stops a running agent on the runtime broker.
 	DispatchAgentStop(ctx context.Context, agent *store.Agent) error
@@ -151,7 +152,8 @@ type RuntimeBrokerClient interface {
 
 	// StartAgent starts an agent on a remote runtime broker.
 	// brokerID is used for HMAC authentication lookup.
-	StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string) error
+	// task is an optional task string to pass to the agent on start.
+	StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task string) error
 
 	// StopAgent stops an agent on a remote runtime broker.
 	// brokerID is used for HMAC authentication lookup.

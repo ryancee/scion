@@ -62,10 +62,20 @@ func (c *ControlChannelBrokerClient) CreateAgent(ctx context.Context, brokerID, 
 }
 
 // StartAgent starts an agent via control channel.
-func (c *ControlChannelBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string) error {
+func (c *ControlChannelBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task string) error {
 	_ = brokerEndpoint
 	path := fmt.Sprintf("/api/v1/agents/%s/start", agentID)
-	_, err := c.doRequest(ctx, brokerID, "POST", path, "", nil)
+
+	var body []byte
+	if task != "" {
+		var err error
+		body, err = json.Marshal(map[string]string{"task": task})
+		if err != nil {
+			return fmt.Errorf("failed to marshal task: %w", err)
+		}
+	}
+
+	_, err := c.doRequest(ctx, brokerID, "POST", path, "", body)
 	return err
 }
 
@@ -189,11 +199,11 @@ func (c *HybridBrokerClient) CreateAgent(ctx context.Context, brokerID, brokerEn
 }
 
 // StartAgent starts an agent, preferring control channel.
-func (c *HybridBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string) error {
+func (c *HybridBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task string) error {
 	if c.useControlChannel(brokerID) {
-		return c.controlChannel.StartAgent(ctx, brokerID, brokerEndpoint, agentID)
+		return c.controlChannel.StartAgent(ctx, brokerID, brokerEndpoint, agentID, task)
 	}
-	return c.httpClient.StartAgent(ctx, brokerID, brokerEndpoint, agentID)
+	return c.httpClient.StartAgent(ctx, brokerID, brokerEndpoint, agentID, task)
 }
 
 // StopAgent stops an agent, preferring control channel.
