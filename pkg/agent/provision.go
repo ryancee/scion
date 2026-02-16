@@ -104,7 +104,7 @@ func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bo
 }
 
 func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*api.ScionConfig, error) {
-	agentDir, _, _, cfg, err := GetAgent(ctx, opts.Name, opts.Template, opts.Image, opts.GrovePath, opts.Profile, "created", opts.Branch, opts.Workspace)
+	agentDir, _, _, cfg, err := GetAgent(ctx, opts.Name, opts.Template, opts.Image, opts.HarnessConfig, opts.GrovePath, opts.Profile, "created", opts.Branch, opts.Workspace)
 	if err == nil {
 		_ = UpdateAgentConfig(opts.Name, opts.GrovePath, "created", m.Runtime.Name(), opts.Profile, "")
 	}
@@ -123,7 +123,7 @@ func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*a
 	return cfg, nil
 }
 
-func ProvisionAgent(ctx context.Context, agentName string, templateName string, agentImage string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, *api.ScionConfig, error) {
+func ProvisionAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, *api.ScionConfig, error) {
 	// 1. Prepare agent directories
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
@@ -249,7 +249,7 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		}
 	}
 
-	// 2. Load and copy templates
+	// 2. Load templates and merge configs (no home copy yet)
 	chain, err := config.GetTemplateChainInGrove(templateName, grovePath)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to load template: %w", err)
@@ -258,41 +258,135 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	finalScionCfg := &api.ScionConfig{}
 
 	for _, tpl := range chain {
-		templateHome := filepath.Join(tpl.Path, "home")
-		if info, err := os.Stat(templateHome); err == nil && info.IsDir() {
-			if err := util.CopyDir(templateHome, agentHome); err != nil {
-				return "", "", nil, fmt.Errorf("failed to copy template home %s: %w", tpl.Name, err)
-			}
-		} else {
-			// Fallback for older templates without a 'home' directory
-			if err := util.CopyDir(tpl.Path, agentHome); err != nil {
-				return "", "", nil, fmt.Errorf("failed to copy template %s: %w", tpl.Name, err)
-			}
-
-			// When falling back to copying the entire template directory, we inadvertently copy
-			// scion-agent.json which is a tool configuration file, not meant for the agent's home.
-			spuriousFile := filepath.Join(agentHome, "scion-agent.json")
-			if _, err := os.Stat(spuriousFile); err == nil {
-				_ = os.Remove(spuriousFile)
-			}
-		}
-
 		// Load scion-agent config from this template and merge it
 		tplCfg, err := tpl.LoadConfig()
 		if err != nil {
 			return "", "", nil, fmt.Errorf("failed to load config from template %s: %w", tpl.Name, err)
 		}
+
+		// Validate: reject legacy templates that still have a 'harness' field
+		if err := config.ValidateAgnosticTemplate(tplCfg); err != nil {
+			return "", "", nil, fmt.Errorf("template %s: %w", tpl.Name, err)
+		}
+
 		finalScionCfg = config.MergeScionConfig(finalScionCfg, tplCfg)
 	}
 
-	// Merge settings env, auth, and resources if available
-	if settings != nil && finalScionCfg.Harness != "" {
-		// Resolve harness config name: CLI flag > template field > legacy fallback (harness name)
-		harnessConfigName := finalScionCfg.HarnessConfig
-		if harnessConfigName == "" {
-			harnessConfigName = finalScionCfg.Harness
+	// 2b. Resolve harness-config name (full chain)
+	harnessConfigName := harnessConfig // CLI --harness-config flag (highest priority)
+	if harnessConfigName == "" {
+		harnessConfigName = finalScionCfg.DefaultHarnessConfig // template's default
+	}
+	if harnessConfigName == "" && settings != nil {
+		// Profile's DefaultHarnessConfig
+		effectiveProfile := profileName
+		if effectiveProfile == "" {
+			effectiveProfile = settings.ActiveProfile
+		}
+		if p, ok := settings.Profiles[effectiveProfile]; ok && p.DefaultHarnessConfig != "" {
+			harnessConfigName = p.DefaultHarnessConfig
+		}
+	}
+	if harnessConfigName == "" && settings != nil {
+		harnessConfigName = settings.DefaultHarnessConfig // top-level settings
+	}
+	if harnessConfigName == "" {
+		return "", "", nil, fmt.Errorf("no harness-config resolved. Specify --harness-config, set default_harness_config in the template, or set default_harness_config in settings")
+	}
+
+	// 2c. Load harness-config from disk
+	hcDir, err := config.FindHarnessConfigDir(harnessConfigName, grovePath)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("failed to find harness-config %q: %w", harnessConfigName, err)
+	}
+	finalScionCfg.Harness = hcDir.Config.Harness
+	finalScionCfg.HarnessConfig = harnessConfigName
+
+	// Merge harness-config scalars into finalScionCfg (harness-config is base, template overrides)
+	hcCfg := &api.ScionConfig{}
+	if hcDir.Config.Image != "" {
+		hcCfg.Image = hcDir.Config.Image
+	}
+	if hcDir.Config.Model != "" {
+		hcCfg.Model = hcDir.Config.Model
+	}
+	if len(hcDir.Config.Args) > 0 {
+		hcCfg.CommandArgs = hcDir.Config.Args
+	}
+	if hcDir.Config.Env != nil {
+		hcCfg.Env = hcDir.Config.Env
+	}
+	if hcDir.Config.Volumes != nil {
+		hcCfg.Volumes = hcDir.Config.Volumes
+	}
+	if hcDir.Config.AuthSelectedType != "" {
+		hcCfg.Gemini = &api.GeminiConfig{
+			AuthSelectedType: hcDir.Config.AuthSelectedType,
+		}
+	}
+	// Harness-config is base layer; template config overrides it
+	finalScionCfg = config.MergeScionConfig(hcCfg, finalScionCfg)
+	// Ensure harness and harness_config fields are not overridden by the merge
+	finalScionCfg.Harness = hcDir.Config.Harness
+	finalScionCfg.HarnessConfig = harnessConfigName
+
+	// 2d. Compose agent home directory
+
+	// Step 1: Copy harness-config base home → agentHome
+	hcHome := filepath.Join(hcDir.Path, "home")
+	if info, err := os.Stat(hcHome); err == nil && info.IsDir() {
+		if err := util.CopyDir(hcHome, agentHome); err != nil {
+			return "", "", nil, fmt.Errorf("failed to copy harness-config home: %w", err)
+		}
+	}
+
+	// Step 2: Copy template home → agentHome (overlay; template files win on conflict)
+	for _, tpl := range chain {
+		templateHome := filepath.Join(tpl.Path, "home")
+		if info, err := os.Stat(templateHome); err == nil && info.IsDir() {
+			if err := util.CopyDir(templateHome, agentHome); err != nil {
+				return "", "", nil, fmt.Errorf("failed to copy template home %s: %w", tpl.Name, err)
+			}
+		}
+	}
+
+	// Step 3: Inject agent instructions
+	h := harness.New(finalScionCfg.Harness)
+	if len(chain) > 0 {
+		lastTpl := chain[len(chain)-1]
+		if finalScionCfg.AgentInstructions != "" {
+			content, err := lastTpl.ResolveContent(finalScionCfg.AgentInstructions)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("failed to resolve agent_instructions: %w", err)
+			}
+			if content != nil {
+				if err := h.InjectAgentInstructions(agentHome, content); err != nil {
+					return "", "", nil, fmt.Errorf("failed to inject agent instructions: %w", err)
+				}
+			}
 		}
 
+		// Step 4: Inject system prompt
+		if finalScionCfg.SystemPrompt != "" {
+			content, err := lastTpl.ResolveContent(finalScionCfg.SystemPrompt)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("failed to resolve system_prompt: %w", err)
+			}
+			if content != nil {
+				if err := h.InjectSystemPrompt(agentHome, content); err != nil {
+					return "", "", nil, fmt.Errorf("failed to inject system prompt: %w", err)
+				}
+			}
+		}
+	}
+
+	// Step 5: Copy common files (.tmux.conf, .zshrc)
+	if err := config.SeedCommonFilesToHome(agentHome, false); err != nil {
+		return "", "", nil, fmt.Errorf("failed to seed common files: %w", err)
+	}
+
+	// 2e. Merge settings env, auth, and resources if available
+	if settings != nil {
 		hConfig, err := settings.ResolveHarnessConfig(profileName, harnessConfigName)
 		if err == nil {
 			settingsCfg := &api.ScionConfig{}
@@ -322,9 +416,6 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 				cpy := *p.Resources
 				finalScionCfg.Resources = &cpy
 			}
-			// Profile resources are base; template/agent resources override.
-			// Since finalScionCfg already has template resources merged,
-			// we merge profile as base under existing values.
 			merged := config.MergeResourceSpec(p.Resources, finalScionCfg.Resources)
 			finalScionCfg.Resources = merged
 		}
@@ -350,20 +441,19 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	if finalScionCfg == nil {
 		finalScionCfg = &api.ScionConfig{}
 	}
-	
+
 	// Create the Info object which will go into agent-info.json
 	info := &api.AgentInfo{
 		Grove:         groveName,
 		Name:          agentName,
 		Template:      templateName,
+		HarnessConfig: harnessConfigName,
 		Profile:       profileName,
 		SessionStatus: "CREATED",
 	}
 	if optionalStatus != "" {
 		info.Status = optionalStatus
 	}
-	// Image and other fields will be resolved at runtime from settings,
-	// but we can persist the requested image if provided.
 	if agentImage != "" {
 		info.Image = agentImage
 	}
@@ -403,14 +493,13 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	}
 
 	// 3. Harness provisioning
-	h := harness.New(finalScionCfg.Harness)
 	if err := h.Provision(ctx, agentName, agentHome, agentWorkspace); err != nil {
 		return "", "", nil, fmt.Errorf("harness provisioning failed: %w", err)
 	}
 
 	// Reload config to get harness updates (e.g. Env vars injected by harness)
-	tpl := &config.Template{Path: agentDir}
-	if updatedCfg, err := tpl.LoadConfig(); err == nil {
+	reloadTpl := &config.Template{Path: agentDir}
+	if updatedCfg, err := reloadTpl.LoadConfig(); err == nil {
 		updatedCfg.Info = finalScionCfg.Info // Re-attach info
 		finalScionCfg = updatedCfg
 	} else {
@@ -507,7 +596,7 @@ func UpdateAgentConfig(agentName string, grovePath string, status string, runtim
 	return nil
 }
 
-func GetAgent(ctx context.Context, agentName string, templateName string, agentImage string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, string, *api.ScionConfig, error) {
+func GetAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, string, *api.ScionConfig, error) {
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
 		return "", "", "", nil, err
@@ -539,7 +628,7 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 		if templateName == "" {
 			templateName = defaultTemplate
 		}
-		home, ws, cfg, err := ProvisionAgent(ctx, agentName, templateName, agentImage, grovePath, profileName, optionalStatus, branch, workspace)
+		home, ws, cfg, err := ProvisionAgent(ctx, agentName, templateName, agentImage, harnessConfig, grovePath, profileName, optionalStatus, branch, workspace)
 		return agentDir, home, ws, cfg, err
 	}
 

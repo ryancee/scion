@@ -233,8 +233,9 @@ type AgentInfo struct {
 	ID          string `json:"id,omitempty"`          // Hub UUID (database primary key, globally unique)
 	Slug        string `json:"slug,omitempty"`        // URL-safe slug identifier (unique per grove)
 	ContainerID string `json:"containerId,omitempty"` // Runtime container ID (ephemeral, runtime-assigned)
-	Name        string `json:"name"`                  // Human-friendly display name
-	Template    string `json:"template"`
+	Name          string `json:"name"`                  // Human-friendly display name
+	Template      string `json:"template"`
+	HarnessConfig string `json:"harnessConfig,omitempty"` // Resolved harness-config name
 
 	// Grove association
 	Grove     string `json:"grove"`               // Grove name (legacy, simple string)

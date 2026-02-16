@@ -33,6 +33,27 @@ type Template struct {
 	Scope string // "global" or "grove"
 }
 
+// ResolveContent resolves a template field value to its content bytes.
+// If field is empty, returns nil, nil.
+// If a file at t.Path/field exists, reads and returns its content.
+// Otherwise, returns field as inline content bytes.
+func (t *Template) ResolveContent(field string) ([]byte, error) {
+	if field == "" {
+		return nil, nil
+	}
+
+	filePath := filepath.Join(t.Path, field)
+	if _, err := os.Stat(filePath); err == nil {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read content file %s: %w", filePath, err)
+		}
+		return data, nil
+	}
+
+	return []byte(field), nil
+}
+
 func (t *Template) LoadConfig() (*api.ScionConfig, error) {
 	// Try YAML first, then JSON
 	configPath := GetScionAgentConfigPath(t.Path)

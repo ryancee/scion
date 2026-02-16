@@ -27,6 +27,10 @@ active_profile: local
 # Env: SCION_DEFAULT_TEMPLATE
 default_template: gemini
 
+# Default harness-config for new agents
+# Env: SCION_DEFAULT_HARNESS_CONFIG
+default_harness_config: gemini
+
 # CLI behavior settings
 cli:
   autohelp: true

@@ -1,0 +1,425 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package agent
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ptone/scion-agent/pkg/config"
+)
+
+// setupCompositionTest creates a standard test environment with HOME, global .scion dir,
+// a project grove, and returns cleanup info.
+func setupCompositionTest(t *testing.T) (tmpDir, globalScionDir, projectScionDir string) {
+	t.Helper()
+	tmpDir = t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
+	originalHome := os.Getenv("HOME")
+	t.Cleanup(func() { os.Setenv("HOME", originalHome) })
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir = filepath.Join(tmpDir, ".scion")
+	os.MkdirAll(filepath.Join(globalScionDir, "templates"), 0755)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir = filepath.Join(projectDir, ".scion")
+	os.MkdirAll(projectScionDir, 0755)
+
+	return tmpDir, globalScionDir, projectScionDir
+}
+
+func TestComposition_HarnessConfigBaseLayer(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	// Create harness-config with home files
+	hcDir := filepath.Join(globalScionDir, "harness-configs", "test-hc")
+	hcHome := filepath.Join(hcDir, "home")
+	os.MkdirAll(filepath.Join(hcHome, ".config"), 0755)
+	os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte("harness: gemini\n"), 0644)
+	os.WriteFile(filepath.Join(hcHome, "base-file.txt"), []byte("from-harness-config"), 0644)
+	os.WriteFile(filepath.Join(hcHome, ".config", "base-config.json"), []byte(`{"source": "harness-config"}`), 0644)
+
+	// Create agnostic template (no home, just points to harness-config)
+	tplDir := filepath.Join(globalScionDir, "templates", "base-test")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("default_harness_config: test-hc\n"), 0644)
+
+	agentHome, _, _, err := ProvisionAgent(context.Background(), "base-agent", "base-test", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// Verify harness-config home files were copied
+	data, err := os.ReadFile(filepath.Join(agentHome, "base-file.txt"))
+	if err != nil {
+		t.Fatalf("expected base-file.txt in agent home: %v", err)
+	}
+	if string(data) != "from-harness-config" {
+		t.Errorf("expected content 'from-harness-config', got %q", string(data))
+	}
+
+	data, err = os.ReadFile(filepath.Join(agentHome, ".config", "base-config.json"))
+	if err != nil {
+		t.Fatalf("expected .config/base-config.json in agent home: %v", err)
+	}
+	if !strings.Contains(string(data), "harness-config") {
+		t.Errorf("expected base-config.json to contain 'harness-config', got %q", string(data))
+	}
+}
+
+func TestComposition_TemplateOverlay(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	// Create harness-config with home files
+	hcDir := filepath.Join(globalScionDir, "harness-configs", "overlay-hc")
+	hcHome := filepath.Join(hcDir, "home")
+	os.MkdirAll(hcHome, 0755)
+	os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte("harness: gemini\n"), 0644)
+	os.WriteFile(filepath.Join(hcHome, "shared-file.txt"), []byte("from-harness-config"), 0644)
+	os.WriteFile(filepath.Join(hcHome, "base-only.txt"), []byte("base-only-content"), 0644)
+
+	// Create template with home directory that overlays
+	tplDir := filepath.Join(globalScionDir, "templates", "overlay-test")
+	tplHome := filepath.Join(tplDir, "home")
+	os.MkdirAll(tplHome, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("default_harness_config: overlay-hc\n"), 0644)
+	os.WriteFile(filepath.Join(tplHome, "shared-file.txt"), []byte("from-template"), 0644) // overlay
+	os.WriteFile(filepath.Join(tplHome, "template-only.txt"), []byte("template-only-content"), 0644)
+
+	agentHome, _, _, err := ProvisionAgent(context.Background(), "overlay-agent", "overlay-test", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// shared-file.txt should have template content (template wins on conflict)
+	data, err := os.ReadFile(filepath.Join(agentHome, "shared-file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "from-template" {
+		t.Errorf("expected template overlay to win, got %q", string(data))
+	}
+
+	// base-only.txt should exist (from harness-config)
+	data, err = os.ReadFile(filepath.Join(agentHome, "base-only.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "base-only-content" {
+		t.Errorf("expected base-only.txt content from harness-config, got %q", string(data))
+	}
+
+	// template-only.txt should exist (from template)
+	data, err = os.ReadFile(filepath.Join(agentHome, "template-only.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "template-only-content" {
+		t.Errorf("expected template-only.txt content, got %q", string(data))
+	}
+}
+
+func TestComposition_AgentInstructionsInjection(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	seedTestHarnessConfig(t, globalScionDir, "gemini-hc", "gemini")
+
+	t.Run("inline content", func(t *testing.T) {
+		tplDir := filepath.Join(globalScionDir, "templates", "inline-instructions")
+		os.MkdirAll(tplDir, 0755)
+		tplConfig := `default_harness_config: gemini-hc
+agent_instructions: "You are a helpful coding assistant."
+`
+		os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte(tplConfig), 0644)
+
+		agentHome, _, _, err := ProvisionAgent(context.Background(), "inline-agent", "inline-instructions", "", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+
+		// Gemini harness writes agent instructions to .gemini/gemini.md
+		data, err := os.ReadFile(filepath.Join(agentHome, ".gemini", "gemini.md"))
+		if err != nil {
+			t.Fatalf("expected gemini.md to exist: %v", err)
+		}
+		if !strings.Contains(string(data), "helpful coding assistant") {
+			t.Errorf("expected agent instructions content, got %q", string(data))
+		}
+	})
+
+	t.Run("file reference", func(t *testing.T) {
+		tplDir := filepath.Join(globalScionDir, "templates", "file-instructions")
+		os.MkdirAll(tplDir, 0755)
+		// Write the instructions file
+		os.WriteFile(filepath.Join(tplDir, "my-instructions.md"), []byte("Instructions from file."), 0644)
+		tplConfig := `default_harness_config: gemini-hc
+agent_instructions: my-instructions.md
+`
+		os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte(tplConfig), 0644)
+
+		agentHome, _, _, err := ProvisionAgent(context.Background(), "file-instr-agent", "file-instructions", "", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(agentHome, ".gemini", "gemini.md"))
+		if err != nil {
+			t.Fatalf("expected gemini.md to exist: %v", err)
+		}
+		if string(data) != "Instructions from file." {
+			t.Errorf("expected content from file, got %q", string(data))
+		}
+	})
+}
+
+func TestComposition_SystemPromptInjection(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	seedTestHarnessConfig(t, globalScionDir, "gemini-hc", "gemini")
+
+	tplDir := filepath.Join(globalScionDir, "templates", "sysprompt-test")
+	os.MkdirAll(tplDir, 0755)
+	tplConfig := `default_harness_config: gemini-hc
+system_prompt: "Be concise and precise."
+`
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte(tplConfig), 0644)
+
+	agentHome, _, _, err := ProvisionAgent(context.Background(), "sysprompt-agent", "sysprompt-test", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// Gemini harness writes system prompt to .gemini/system_prompt.md
+	data, err := os.ReadFile(filepath.Join(agentHome, ".gemini", "system_prompt.md"))
+	if err != nil {
+		t.Fatalf("expected system_prompt.md to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "concise and precise") {
+		t.Errorf("expected system prompt content, got %q", string(data))
+	}
+}
+
+func TestComposition_CommonFiles(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	seedTestHarnessConfig(t, globalScionDir, "common-hc", "gemini")
+
+	tplDir := filepath.Join(globalScionDir, "templates", "common-test")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("default_harness_config: common-hc\n"), 0644)
+
+	agentHome, _, _, err := ProvisionAgent(context.Background(), "common-agent", "common-test", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// Verify common files are present
+	if _, err := os.Stat(filepath.Join(agentHome, ".tmux.conf")); os.IsNotExist(err) {
+		t.Error("expected .tmux.conf to be seeded in agent home")
+	}
+	if _, err := os.Stat(filepath.Join(agentHome, ".zshrc")); os.IsNotExist(err) {
+		t.Error("expected .zshrc to be seeded in agent home")
+	}
+}
+
+func TestComposition_HarnessConfigResolution(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	// Create harness-configs
+	seedTestHarnessConfig(t, globalScionDir, "cli-hc", "gemini")
+	seedTestHarnessConfig(t, globalScionDir, "tpl-hc", "gemini")
+	seedTestHarnessConfig(t, globalScionDir, "profile-hc", "gemini")
+	seedTestHarnessConfig(t, globalScionDir, "settings-hc", "gemini")
+
+	// Create template with default_harness_config
+	tplDir := filepath.Join(globalScionDir, "templates", "resolve-test")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("default_harness_config: tpl-hc\n"), 0644)
+
+	// Create template without default_harness_config (for fallback tests)
+	tplDirNoDefault := filepath.Join(globalScionDir, "templates", "no-default-test")
+	os.MkdirAll(tplDirNoDefault, 0755)
+	os.WriteFile(filepath.Join(tplDirNoDefault, "scion-agent.yaml"), []byte("env:\n  FOO: bar\n"), 0644)
+
+	t.Run("CLI flag wins over template", func(t *testing.T) {
+		_, _, cfg, err := ProvisionAgent(context.Background(), "cli-wins", "resolve-test", "", "cli-hc", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+		if cfg.HarnessConfig != "cli-hc" {
+			t.Errorf("expected HarnessConfig = 'cli-hc', got %q", cfg.HarnessConfig)
+		}
+	})
+
+	t.Run("template default used when no CLI flag", func(t *testing.T) {
+		_, _, cfg, err := ProvisionAgent(context.Background(), "tpl-default", "resolve-test", "", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+		if cfg.HarnessConfig != "tpl-hc" {
+			t.Errorf("expected HarnessConfig = 'tpl-hc', got %q", cfg.HarnessConfig)
+		}
+	})
+
+	t.Run("profile default used when template has none", func(t *testing.T) {
+		// Write settings with profile that has default_harness_config
+		settingsYAML := `schema_version: "1"
+profiles:
+  test-profile:
+    runtime: docker
+    default_harness_config: profile-hc
+`
+		os.WriteFile(filepath.Join(globalScionDir, "settings.yaml"), []byte(settingsYAML), 0644)
+
+		_, _, cfg, err := ProvisionAgent(context.Background(), "profile-default", "no-default-test", "", "", projectScionDir, "test-profile", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+		if cfg.HarnessConfig != "profile-hc" {
+			t.Errorf("expected HarnessConfig = 'profile-hc', got %q", cfg.HarnessConfig)
+		}
+		// Clean up settings
+		os.Remove(filepath.Join(globalScionDir, "settings.yaml"))
+	})
+
+	t.Run("top-level settings default used as last resort", func(t *testing.T) {
+		settingsYAML := `schema_version: "1"
+default_harness_config: settings-hc
+`
+		os.WriteFile(filepath.Join(globalScionDir, "settings.yaml"), []byte(settingsYAML), 0644)
+
+		_, _, cfg, err := ProvisionAgent(context.Background(), "settings-default", "no-default-test", "", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+		if cfg.HarnessConfig != "settings-hc" {
+			t.Errorf("expected HarnessConfig = 'settings-hc', got %q", cfg.HarnessConfig)
+		}
+		os.Remove(filepath.Join(globalScionDir, "settings.yaml"))
+	})
+
+	t.Run("error when no harness-config resolved", func(t *testing.T) {
+		_, _, _, err := ProvisionAgent(context.Background(), "no-hc", "no-default-test", "", "", projectScionDir, "", "", "", "")
+		if err == nil {
+			t.Fatal("expected error when no harness-config can be resolved")
+		}
+		if !strings.Contains(err.Error(), "no harness-config resolved") {
+			t.Errorf("expected error about harness-config resolution, got: %v", err)
+		}
+	})
+}
+
+func TestComposition_LegacyTemplateRejected(t *testing.T) {
+	_, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	// Create a legacy template with harness field
+	tplDir := filepath.Join(globalScionDir, "templates", "legacy-tpl")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("harness: gemini\n"), 0644)
+
+	_, _, _, err := ProvisionAgent(context.Background(), "legacy-agent", "legacy-tpl", "", "", projectScionDir, "", "", "", "")
+	if err == nil {
+		t.Fatal("expected error for legacy template with 'harness' field")
+	}
+	if !strings.Contains(err.Error(), "harness") {
+		t.Errorf("expected error to mention 'harness', got: %v", err)
+	}
+}
+
+func TestComposition_HarnessConfigPersistedInAgentInfo(t *testing.T) {
+	tmpDir, globalScionDir, projectScionDir := setupCompositionTest(t)
+
+	seedTestHarnessConfig(t, globalScionDir, "persist-hc", "gemini")
+
+	tplDir := filepath.Join(globalScionDir, "templates", "persist-test")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("default_harness_config: persist-hc\n"), 0644)
+
+	agentHome, _, cfg, err := ProvisionAgent(context.Background(), "persist-agent", "persist-test", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// Verify harness-config persisted in returned config
+	if cfg.HarnessConfig != "persist-hc" {
+		t.Errorf("expected HarnessConfig = 'persist-hc', got %q", cfg.HarnessConfig)
+	}
+
+	// Verify agent-info.json has harness-config
+	infoData, err := os.ReadFile(filepath.Join(agentHome, "agent-info.json"))
+	if err != nil {
+		t.Fatalf("failed to read agent-info.json: %v", err)
+	}
+	if !strings.Contains(string(infoData), "persist-hc") {
+		t.Errorf("expected agent-info.json to contain 'persist-hc', got: %s", string(infoData))
+	}
+
+	_ = tmpDir
+}
+
+func TestComposition_FullInitProjectFlow(t *testing.T) {
+	// End-to-end test: InitProject + default template + harness-config resolution
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir := filepath.Join(projectDir, ".scion")
+	if err := config.InitProject(projectScionDir, getTestHarnesses()); err != nil {
+		t.Fatalf("InitProject failed: %v", err)
+	}
+
+	os.Chdir(projectDir)
+
+	// Use the "default" template which is seeded as agnostic with default_harness_config: gemini
+	agentHome, _, cfg, err := ProvisionAgent(context.Background(), "full-flow-agent", "default", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// Verify harness was resolved from gemini harness-config
+	if cfg.Harness != "gemini" {
+		t.Errorf("expected harness 'gemini', got %q", cfg.Harness)
+	}
+
+	// Verify harness-config name is set
+	if cfg.HarnessConfig != "gemini" {
+		t.Errorf("expected HarnessConfig 'gemini', got %q", cfg.HarnessConfig)
+	}
+
+	// Verify agent home exists
+	if agentHome == "" {
+		t.Fatal("expected non-empty agent home path")
+	}
+
+	// Verify common files present
+	if _, err := os.Stat(filepath.Join(agentHome, ".tmux.conf")); os.IsNotExist(err) {
+		t.Error("expected .tmux.conf in agent home")
+	}
+}

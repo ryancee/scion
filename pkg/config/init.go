@@ -144,6 +144,47 @@ func SeedCommonFiles(templateDir, configDirName string, force bool) error {
 	return nil
 }
 
+// SeedCommonFilesToHome seeds common files (.tmux.conf, .zshrc) directly into
+// a home directory. Unlike SeedCommonFiles which writes into templateDir/home/,
+// this writes directly into the provided homeDir for use during agent provisioning.
+func SeedCommonFilesToHome(homeDir string, force bool) error {
+	readCommonEmbed := func(name string) string {
+		data, err := EmbedsFS.ReadFile(filepath.Join("embeds", "common", name))
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+
+	files := []struct {
+		path    string
+		content string
+		mode    os.FileMode
+	}{
+		{filepath.Join(homeDir, ".tmux.conf"), readCommonEmbed(".tmux.conf"), 0644},
+		{filepath.Join(homeDir, ".zshrc"), readCommonEmbed("zshrc"), 0644},
+	}
+
+	for _, f := range files {
+		if f.content == "" {
+			continue
+		}
+		if force {
+			if err := os.WriteFile(f.path, []byte(f.content), f.mode); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", f.path, err)
+			}
+			continue
+		}
+		if _, err := os.Stat(f.path); os.IsNotExist(err) {
+			if err := os.WriteFile(f.path, []byte(f.content), f.mode); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", f.path, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // SeedFileFromFS writes a file from an embed.FS to a target path.
 // If force is true, the file is always overwritten. Otherwise, it is only
 // written if it does not already exist. alwaysOverwrite can be set to true

@@ -51,10 +51,13 @@ func TestStart_ErrorPropagation_Tmux(t *testing.T) {
 	if err := os.MkdirAll(tplDir, 0755); err != nil {
 		t.Fatalf("failed to create gemini template dir: %v", err)
 	}
-	tplConfig := `{"harness": "generic"}`
+	tplConfig := `{"default_harness_config": "generic"}`
 	if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644); err != nil {
 		t.Fatalf("failed to write template config: %v", err)
 	}
+
+	// Create harness-config for "generic"
+	seedTestHarnessConfig(t, globalScionDir, "generic", "generic")
 
 	// Create .scion/settings.json with tmux enabled for "mock" runtime
 	// We put this in the project dir
@@ -159,10 +162,13 @@ func TestStart_ErrorPropagation_Tmux_Missing(t *testing.T) {
 	if err := os.MkdirAll(tplDir, 0755); err != nil {
 		t.Fatalf("failed to create gemini template dir: %v", err)
 	}
-	tplConfig := `{"harness": "generic"}`
+	tplConfig := `{"default_harness_config": "generic"}`
 	if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644); err != nil {
 		t.Fatalf("failed to write template config: %v", err)
 	}
+
+	// Create harness-config for "generic"
+	seedTestHarnessConfig(t, globalScionDir, "generic", "generic")
 
 	// Create .scion/settings.json with tmux enabled for "mock" runtime
 	projectDir := filepath.Join(tmpDir, "project")
@@ -258,10 +264,13 @@ func TestStart_ErrorPropagation_FalsePositive_Tmux(t *testing.T) {
 	if err := os.MkdirAll(tplDir, 0755); err != nil {
 		t.Fatalf("failed to create gemini template dir: %v", err)
 	}
-	tplConfig := `{"harness": "generic"}`
+	tplConfig := `{"default_harness_config": "generic"}`
 	if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644); err != nil {
 		t.Fatalf("failed to write template config: %v", err)
 	}
+
+	// Create harness-config for "generic"
+	seedTestHarnessConfig(t, globalScionDir, "generic", "generic")
 
 	// Create project structure
 	projectDir := filepath.Join(tmpDir, "project")
@@ -356,10 +365,13 @@ func TestStart_ErrorPropagation_Tmux_CommandNotFound(t *testing.T) {
 	if err := os.MkdirAll(tplDir, 0755); err != nil {
 		t.Fatalf("failed to create gemini template dir: %v", err)
 	}
-	tplConfig := `{"harness": "generic"}`
+	tplConfig := `{"default_harness_config": "generic"}`
 	if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644); err != nil {
 		t.Fatalf("failed to write template config: %v", err)
 	}
+
+	// Create harness-config for "generic"
+	seedTestHarnessConfig(t, globalScionDir, "generic", "generic")
 
 	// Create project structure
 	projectDir := filepath.Join(tmpDir, "project")

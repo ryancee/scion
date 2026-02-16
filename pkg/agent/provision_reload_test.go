@@ -23,8 +23,6 @@ import (
 	"github.com/ptone/scion-agent/pkg/config"
 )
 
-
-
 func TestProvisionAgentReloadsConfig(t *testing.T) {
 	// This test verifies that ProvisionAgent reloads the config after harness.Provision
 	// which allows harness-injected changes (like GEMINI_API_KEY) to be returned.
@@ -53,11 +51,9 @@ func TestProvisionAgentReloadsConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Provision a gemini agent
-	// The default "gemini" template uses "gemini" harness and default "gemini-api-key" auth type.
-	// The GeminiCLI harness injects GEMINI_API_KEY=${GEMINI_API_KEY} into scion-agent.json during Provision.
+	// Provision a gemini agent using the "default" agnostic template with --harness-config=gemini
 	agentName := "reload-test-agent"
-	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "gemini", "", projectScionDir, "", "", "", "")
+	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "default", "", "gemini", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}

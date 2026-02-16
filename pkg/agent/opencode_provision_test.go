@@ -23,8 +23,6 @@ import (
 	"github.com/ptone/scion-agent/pkg/config"
 )
 
-
-
 func TestProvisionOpencodeAgent(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -60,14 +58,14 @@ func TestProvisionOpencodeAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Provision an opencode agent
+	// Provision an opencode agent using the "default" agnostic template with --harness-config=opencode
 	agentName := "opencode-agent"
-	_, _, _, err := ProvisionAgent(context.Background(), agentName, "opencode", "", projectScionDir, "", "", "", "")
+	_, _, _, err := ProvisionAgent(context.Background(), agentName, "default", "", "opencode", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
-	// Verify agent's opencode.json
+	// Verify agent's opencode.json (from harness-config home)
 	agentOpencodeJSONPath := filepath.Join(projectScionDir, "agents", agentName, "home", ".config", "opencode", "opencode.json")
 	if _, err := os.Stat(agentOpencodeJSONPath); os.IsNotExist(err) {
 		t.Fatalf("expected opencode.json to exist at %s", agentOpencodeJSONPath)

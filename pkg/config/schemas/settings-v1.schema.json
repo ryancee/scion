@@ -30,6 +30,13 @@
       "x-scope": "any",
       "x-since": "1"
     },
+    "default_harness_config": {
+      "type": "string",
+      "description": "Default harness-config name for new agents. Used as last resort in the resolution chain.",
+      "x-env-var": "SCION_DEFAULT_HARNESS_CONFIG",
+      "x-scope": "any",
+      "x-since": "1"
+    },
     "server": {
       "type": "object",
       "description": "Server/broker process configuration. Global-only.",

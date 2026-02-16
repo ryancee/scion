@@ -152,10 +152,11 @@ func PrintDeprecationWarnings(warnings []string) {
 
 // VersionedSettings is the root configuration struct for versioned settings (v1+).
 type VersionedSettings struct {
-	SchemaVersion   string                          `json:"schema_version" yaml:"schema_version" koanf:"schema_version"`
-	ActiveProfile   string                          `json:"active_profile,omitempty" yaml:"active_profile,omitempty" koanf:"active_profile"`
-	DefaultTemplate string                          `json:"default_template,omitempty" yaml:"default_template,omitempty" koanf:"default_template"`
-	Server          *V1ServerConfig                 `json:"server,omitempty" yaml:"server,omitempty" koanf:"server"`
+	SchemaVersion        string                          `json:"schema_version" yaml:"schema_version" koanf:"schema_version"`
+	ActiveProfile        string                          `json:"active_profile,omitempty" yaml:"active_profile,omitempty" koanf:"active_profile"`
+	DefaultTemplate      string                          `json:"default_template,omitempty" yaml:"default_template,omitempty" koanf:"default_template"`
+	DefaultHarnessConfig string                          `json:"default_harness_config,omitempty" yaml:"default_harness_config,omitempty" koanf:"default_harness_config"`
+	Server               *V1ServerConfig                 `json:"server,omitempty" yaml:"server,omitempty" koanf:"server"`
 	Hub             *V1HubClientConfig              `json:"hub,omitempty" yaml:"hub,omitempty" koanf:"hub"`
 	CLI             *V1CLIConfig                    `json:"cli,omitempty" yaml:"cli,omitempty" koanf:"cli"`
 	Runtimes        map[string]V1RuntimeConfig      `json:"runtimes,omitempty" yaml:"runtimes,omitempty" koanf:"runtimes"`

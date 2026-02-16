@@ -27,7 +27,17 @@ import (
 	"github.com/ptone/scion-agent/pkg/runtime"
 )
 
-
+// seedTestHarnessConfig creates a minimal harness-config directory for testing.
+// Creates <scionDir>/harness-configs/<name>/config.yaml with the given harness type.
+func seedTestHarnessConfig(t *testing.T, scionDir, name, harnessType string) {
+	t.Helper()
+	hcDir := filepath.Join(scionDir, "harness-configs", name)
+	os.MkdirAll(hcDir, 0755)
+	configYAML := "harness: " + harnessType + "\n"
+	if err := os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte(configYAML), 0644); err != nil {
+		t.Fatalf("failed to write harness-config: %v", err)
+	}
+}
 
 func TestProvisionAgentEnvMerging(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -46,11 +56,14 @@ func TestProvisionAgentEnvMerging(t *testing.T) {
 	globalTemplatesDir := filepath.Join(globalScionDir, "templates")
 	os.MkdirAll(globalTemplatesDir, 0755)
 
-	// Create a dummy template
+	// Create a harness-config for test-harness
+	seedTestHarnessConfig(t, globalScionDir, "test-harness", "test-harness")
+
+	// Create an agnostic template (no harness field, uses default_harness_config)
 	tplDir := filepath.Join(globalTemplatesDir, "test-tpl")
 	os.MkdirAll(tplDir, 0755)
 	tplConfig := `{
-		"harness": "test-harness",
+		"default_harness_config": "test-harness",
 		"env": {
 			"TPL_VAR": "tpl-val",
 			"OVERRIDE_VAR": "tpl-override"
@@ -58,45 +71,41 @@ func TestProvisionAgentEnvMerging(t *testing.T) {
 	}`
 	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644)
 
-	// Global settings
-	globalSettings := `{
-		"harnesses": {
-			"test-harness": {
-				"env": {
-					"GLOBAL_VAR": "global-val",
-					"OVERRIDE_VAR": "global-override"
-				}
-			}
-		}
-	}`
-	os.WriteFile(filepath.Join(globalScionDir, "settings.json"), []byte(globalSettings), 0644)
+	// Global settings with harness_configs
+	globalSettings := `schema_version: "1"
+harness_configs:
+  test-harness:
+    harness: test-harness
+    env:
+      GLOBAL_VAR: global-val
+      OVERRIDE_VAR: global-override
+`
+	os.WriteFile(filepath.Join(globalScionDir, "settings.yaml"), []byte(globalSettings), 0644)
 
 	// Project settings
 	projectDir := filepath.Join(tmpDir, "project")
 	projectScionDir := filepath.Join(projectDir, ".scion")
 	os.MkdirAll(projectScionDir, 0755)
-	projectSettings := `{
-		"profiles": {
-			"test-profile": {
-				"env": {
-					"PROJECT_VAR": "project-val",
-					"OVERRIDE_VAR": "project-override"
-				}
-			}
-		}
-	}`
-	os.WriteFile(filepath.Join(projectScionDir, "settings.json"), []byte(projectSettings), 0644)
+	projectSettings := `schema_version: "1"
+profiles:
+  test-profile:
+    runtime: docker
+    env:
+      PROJECT_VAR: project-val
+      OVERRIDE_VAR: project-override
+`
+	os.WriteFile(filepath.Join(projectScionDir, "settings.yaml"), []byte(projectSettings), 0644)
 
 	// Provision agent
 	agentName := "test-agent"
-	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "test-tpl", "", projectScionDir, "test-profile", "", "", "")
+	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "test-tpl", "", "", projectScionDir, "test-profile", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
 	// Priority (user requested): Global (lowest) -> Project -> Template (highest)
 	// So OVERRIDE_VAR should be "tpl-override"
-	
+
 	expectedEnv := map[string]string{
 		"GLOBAL_VAR":   "global-val",
 		"PROJECT_VAR":  "project-val",
@@ -144,7 +153,6 @@ func TestProvisionGeminiAgentSettings(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	// Initialize a mock project
-	// Initialize a mock project
 	projectDir := filepath.Join(tmpDir, "project")
 	projectScionDir := filepath.Join(projectDir, ".scion")
 	if err := config.InitProject(projectScionDir, getTestHarnesses()); err != nil {
@@ -156,14 +164,14 @@ func TestProvisionGeminiAgentSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Provision a gemini agent
+	// Provision a gemini agent using the "default" agnostic template
 	agentName := "gemini-agent"
-	_, _, _, err := ProvisionAgent(context.Background(), agentName, "gemini", "", projectScionDir, "", "", "", "")
+	_, _, _, err := ProvisionAgent(context.Background(), agentName, "default", "", "gemini", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
-	// Verify agent's settings.json
+	// Verify agent's settings.json (copied from gemini harness-config's home)
 	agentSettingsPath := filepath.Join(projectScionDir, "agents", agentName, "home", ".gemini", "settings.json")
 	data, err := os.ReadFile(agentSettingsPath)
 	if err != nil {
@@ -208,6 +216,7 @@ func TestProvisionWritesTaskToPromptMd(t *testing.T) {
 		opts := api.StartOptions{
 			Name:      "agent-with-task",
 			Task:      "implement feature X",
+			Template:  "default",
 			GrovePath: projectScionDir,
 		}
 
@@ -229,6 +238,7 @@ func TestProvisionWritesTaskToPromptMd(t *testing.T) {
 	t.Run("without task", func(t *testing.T) {
 		opts := api.StartOptions{
 			Name:      "agent-no-task",
+			Template:  "default",
 			GrovePath: projectScionDir,
 		}
 
@@ -262,7 +272,6 @@ func TestProvisionAgentNonGitWorkspace(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	// Project-local grove
-	// Initialize a mock project
 	projectDir := filepath.Join(tmpDir, "project")
 	projectScionDir := filepath.Join(projectDir, ".scion")
 	if err := config.InitProject(projectScionDir, getTestHarnesses()); err != nil {
@@ -277,7 +286,7 @@ func TestProvisionAgentNonGitWorkspace(t *testing.T) {
 	evalProjectDir, _ := filepath.EvalSymlinks(projectDir)
 
 	agentName := "test-agent"
-	home, ws, cfg, err := ProvisionAgent(context.Background(), agentName, "gemini", "", projectScionDir, "", "", "", "")
+	home, ws, cfg, err := ProvisionAgent(context.Background(), agentName, "default", "", "", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
@@ -319,7 +328,7 @@ func TestProvisionAgentNonGitWorkspace(t *testing.T) {
 	}
 	evalCWD, _ := filepath.EvalSymlinks(cwd)
 
-	_, ws, cfg, err = ProvisionAgent(context.Background(), "global-agent", "gemini", "", globalScionDir, "", "", "", "")
+	_, ws, cfg, err = ProvisionAgent(context.Background(), "global-agent", "default", "", "", globalScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed for global grove: %v", err)
 	}
@@ -360,10 +369,12 @@ func TestProvisionAgentWorkspaceFlag(t *testing.T) {
 	globalTemplatesDir := filepath.Join(globalScionDir, "templates")
 	os.MkdirAll(globalTemplatesDir, 0755)
 
-	// Create a dummy template
+	// Create a harness-config and agnostic template
+	seedTestHarnessConfig(t, globalScionDir, "gemini", "gemini")
+
 	tplDir := filepath.Join(globalTemplatesDir, "gemini")
 	os.MkdirAll(tplDir, 0755)
-	tplConfig := `{"harness": "gemini"}`
+	tplConfig := `{"default_harness_config": "gemini"}`
 	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644)
 
 	projectDir := filepath.Join(tmpDir, "project")
@@ -380,7 +391,7 @@ func TestProvisionAgentWorkspaceFlag(t *testing.T) {
 
 	// 1. Test valid --workspace in non-git
 	agentName := "workspace-agent"
-	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "gemini", "", projectScionDir, "", "", "", customWorkspace)
+	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "gemini", "", "", projectScionDir, "", "", "", customWorkspace)
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
@@ -403,21 +414,12 @@ func TestProvisionAgentWorkspaceFlag(t *testing.T) {
 
 	// 2. Test relative path for --workspace
 	relativeWorkspace := "some-subdir"
-	// ProvisionAgent resolves relative paths against CWD if grove is global, or parent of projectDir if local.
-	// But in this test context, we are passing projectScionDir.
-	// Let's see ProvisionAgent logic:
-	// "Case 3: Non-Git Repository (and no explicit workspace)" -> "workspaceSource = filepath.Dir(projectDir)"
-	// But wait, here we HAVE an explicit workspace.
-	// "Case 1: Explicit Workspace provided" -> "absWorkspace, err := filepath.Abs(workspace)"
-	// filepath.Abs uses CWD.
-	// In this test, CWD is tmpDir.
-	// So we should create the directory in tmpDir.
 
 	os.MkdirAll(filepath.Join(tmpDir, relativeWorkspace), 0755)
 	absRelativeWorkspace, _ := filepath.Abs(filepath.Join(tmpDir, relativeWorkspace))
 	evalAbsRelativeWorkspace, _ := filepath.EvalSymlinks(absRelativeWorkspace)
 
-	_, _, cfg, err = ProvisionAgent(context.Background(), "rel-agent", "gemini", "", projectScionDir, "", "", "", relativeWorkspace)
+	_, _, cfg, err = ProvisionAgent(context.Background(), "rel-agent", "gemini", "", "", projectScionDir, "", "", "", relativeWorkspace)
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
@@ -443,13 +445,8 @@ func TestProvisionAgentWorkspaceFlag(t *testing.T) {
 	os.MkdirAll(gitScionDir, 0755)
 	os.WriteFile(filepath.Join(gitDir, ".gitignore"), []byte("agents/"), 0644)
 
-	// We need to change to the git directory so util.IsGitRepoDir works correctly if it uses CWD
-	
-	// mock util.IsGitRepoDir and other git functions is hard, so we just rely on physical dirs
-	// and hope the test environment allows 'git' commands if util calls them.
-
 	var ws string
-	_, ws, cfg, err = ProvisionAgent(context.Background(), "git-agent", "gemini", "", gitScionDir, "", "", "", customWorkspace)
+	_, ws, cfg, err = ProvisionAgent(context.Background(), "git-agent", "gemini", "", "", gitScionDir, "", "", "", customWorkspace)
 	if err != nil {
 		t.Fatalf("expected no error when using --workspace in a git repository, got: %v", err)
 	}
@@ -489,10 +486,13 @@ func TestProvisionAgentYAMLTemplate(t *testing.T) {
 	globalTemplatesDir := filepath.Join(globalScionDir, "templates")
 	os.MkdirAll(globalTemplatesDir, 0755)
 
-	// Create a template with YAML config (the preferred format)
+	// Create a harness-config for gemini
+	seedTestHarnessConfig(t, globalScionDir, "gemini", "gemini")
+
+	// Create an agnostic template with YAML config
 	tplDir := filepath.Join(globalTemplatesDir, "yaml-test-tpl")
 	os.MkdirAll(tplDir, 0755)
-	tplConfigYAML := `harness: gemini
+	tplConfigYAML := `default_harness_config: gemini
 env:
   TPL_VAR: tpl-val
   GOOGLE_CLOUD_PROJECT: my-project
@@ -509,12 +509,12 @@ gemini:
 
 	// Provision agent
 	agentName := "yaml-agent"
-	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "yaml-test-tpl", "", projectScionDir, "", "", "", "")
+	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "yaml-test-tpl", "", "", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
-	// Verify YAML config was loaded correctly
+	// Verify harness resolved from harness-config
 	if cfg.Harness != "gemini" {
 		t.Errorf("expected harness 'gemini', got %q", cfg.Harness)
 	}
@@ -567,12 +567,15 @@ func TestProvisionAgentUsesGroveTemplate(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	os.Setenv("HOME", tmpDir)
 
-	// Create a global template with a different harness value
+	// Create global harness-configs
 	globalScionDir := filepath.Join(tmpDir, ".scion")
+	seedTestHarnessConfig(t, globalScionDir, "grove-harness", "grove-harness")
+
+	// Create a global agnostic template
 	globalTplDir := filepath.Join(globalScionDir, "templates", "my-tpl")
 	os.MkdirAll(globalTplDir, 0755)
 	os.WriteFile(filepath.Join(globalTplDir, "scion-agent.json"), []byte(`{
-		"harness": "global-harness",
+		"default_harness_config": "grove-harness",
 		"env": {"SOURCE": "global"}
 	}`), 0644)
 
@@ -582,20 +585,20 @@ func TestProvisionAgentUsesGroveTemplate(t *testing.T) {
 	groveTplDir := filepath.Join(grovePath, "templates", "my-tpl")
 	os.MkdirAll(groveTplDir, 0755)
 	os.WriteFile(filepath.Join(groveTplDir, "scion-agent.json"), []byte(`{
-		"harness": "grove-harness",
+		"default_harness_config": "grove-harness",
 		"env": {"SOURCE": "grove"}
 	}`), 0644)
 
 	// Provision agent using grovePath — the grove template should be used
 	// even though CWD has no .scion directory.
 	agentName := "grove-tpl-agent"
-	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "my-tpl", "", grovePath, "", "", "", "")
+	_, _, cfg, err := ProvisionAgent(context.Background(), agentName, "my-tpl", "", "", grovePath, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
 	if cfg.Harness != "grove-harness" {
-		t.Errorf("expected harness 'grove-harness' (from grove template), got %q", cfg.Harness)
+		t.Errorf("expected harness 'grove-harness' (from harness-config), got %q", cfg.Harness)
 	}
 	if cfg.Env["SOURCE"] != "grove" {
 		t.Errorf("expected env[SOURCE] = 'grove', got %q", cfg.Env["SOURCE"])
@@ -622,7 +625,7 @@ func TestProvisionAgentInvalidYAMLTemplate(t *testing.T) {
 	// Create a template with invalid YAML config (commas in map entries)
 	tplDir := filepath.Join(globalTemplatesDir, "invalid-yaml-tpl")
 	os.MkdirAll(tplDir, 0755)
-	invalidYAML := `harness: gemini
+	invalidYAML := `default_harness_config: gemini
 env:
   "KEY1": "value1",
   "KEY2": "value2"
@@ -637,7 +640,7 @@ env:
 
 	// Provision agent - should fail with an error
 	agentName := "invalid-yaml-agent"
-	_, _, _, err := ProvisionAgent(context.Background(), agentName, "invalid-yaml-tpl", "", projectScionDir, "", "", "", "")
+	_, _, _, err := ProvisionAgent(context.Background(), agentName, "invalid-yaml-tpl", "", "", projectScionDir, "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for invalid YAML template, got nil")
 	}
@@ -663,11 +666,14 @@ func TestProvisionAgent_WritesServicesFile(t *testing.T) {
 	globalTemplatesDir := filepath.Join(globalScionDir, "templates")
 	os.MkdirAll(globalTemplatesDir, 0755)
 
+	// Create a harness-config for gemini
+	seedTestHarnessConfig(t, globalScionDir, "gemini", "gemini")
+
 	t.Run("services written when defined", func(t *testing.T) {
-		// Create a template with services defined in YAML
+		// Create an agnostic template with services defined in YAML
 		tplDir := filepath.Join(globalTemplatesDir, "svc-tpl")
 		os.MkdirAll(tplDir, 0755)
-		tplConfigYAML := `harness: gemini
+		tplConfigYAML := `default_harness_config: gemini
 services:
   - name: xvfb
     command: ["Xvfb", ":99"]
@@ -685,7 +691,7 @@ services:
 		os.MkdirAll(projectScionDir, 0755)
 
 		agentName := "svc-agent"
-		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "svc-tpl", "", projectScionDir, "", "", "", "")
+		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "svc-tpl", "", "", projectScionDir, "", "", "", "")
 		if err != nil {
 			t.Fatalf("ProvisionAgent failed: %v", err)
 		}
@@ -708,7 +714,7 @@ services:
 	t.Run("no services file when none defined", func(t *testing.T) {
 		tplDir := filepath.Join(globalTemplatesDir, "no-svc-tpl")
 		os.MkdirAll(tplDir, 0755)
-		tplConfig := `{"harness": "gemini"}`
+		tplConfig := `{"default_harness_config": "gemini"}`
 		os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644)
 
 		projectDir := filepath.Join(tmpDir, "project-nosvc")
@@ -716,7 +722,7 @@ services:
 		os.MkdirAll(projectScionDir, 0755)
 
 		agentName := "no-svc-agent"
-		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "no-svc-tpl", "", projectScionDir, "", "", "", "")
+		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "no-svc-tpl", "", "", projectScionDir, "", "", "", "")
 		if err != nil {
 			t.Fatalf("ProvisionAgent failed: %v", err)
 		}

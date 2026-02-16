@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,49 +54,53 @@ func TestProvisionAgentHomeCopy(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	projectScionDir := filepath.Join(tmpDir, ".scion")
-	
+
 	// Add .scion/agents/ to gitignore to satisfy ProvisionAgent's security check
 	os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(".scion/agents/\n"), 0644)
 	runCmd(t, tmpDir, "git", "add", ".gitignore")
 	runCmd(t, tmpDir, "git", "commit", "-m", "add gitignore")
 
+	// Create harness-config for test harness
+	seedTestHarnessConfig(t, projectScionDir, "test", "test")
+
+	// Create agnostic template with home directory
 	os.MkdirAll(filepath.Join(projectScionDir, "templates", "test-tpl", "home"), 0755)
 
 	tplDir := filepath.Join(projectScionDir, "templates", "test-tpl")
-	
-	// Create file in template root (should NOT be copied if home exists)
+
+	// Create file in template root (should NOT be copied)
 	os.WriteFile(filepath.Join(tplDir, "root-file.txt"), []byte("root"), 0644)
-	
-	// Create file in template home (SHOULD be copied)
+
+	// Create file in template home (SHOULD be copied as overlay)
 	os.WriteFile(filepath.Join(tplDir, "home", "home-file.txt"), []byte("home"), 0644)
-	
-	// Create scion-agent.json in template root
-	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"harness": "test"}`), 0644)
+
+	// Create agnostic scion-agent.json in template root
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"default_harness_config": "test"}`), 0644)
 
 	// Provision agent
 	agentName := "test-agent"
-	agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "test-tpl", "", projectScionDir, "", "", "", "")
+	agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "test-tpl", "", "", projectScionDir, "", "", "", "")
 	if err != nil {
 		t.Fatalf("ProvisionAgent failed: %v", err)
 	}
 
-	// Verify home-file.txt exists in agentHome
+	// Verify home-file.txt exists in agentHome (from template overlay)
 	if _, err := os.Stat(filepath.Join(agentHome, "home-file.txt")); os.IsNotExist(err) {
 		t.Errorf("expected home-file.txt to be copied to agent home")
 	}
 
 	// Verify root-file.txt does NOT exist in agentHome
 	if _, err := os.Stat(filepath.Join(agentHome, "root-file.txt")); err == nil {
-		t.Errorf("expected root-file.txt NOT to be copied to agent home when home/ directory exists")
+		t.Errorf("expected root-file.txt NOT to be copied to agent home")
 	}
-	
-	// Verify scion-agent.json does NOT exist in agentHome (it's in template root)
+
+	// Verify scion-agent.json does NOT exist in agentHome
 	if _, err := os.Stat(filepath.Join(agentHome, "scion-agent.json")); err == nil {
-		t.Errorf("expected scion-agent.json NOT to be copied to agent home when home/ directory exists")
+		t.Errorf("expected scion-agent.json NOT to be copied to agent home")
 	}
 }
 
-func TestProvisionAgentLegacyTemplateCleanup(t *testing.T) {
+func TestProvisionAgentLegacyTemplateRejected(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Move to tmpDir to avoid being inside the project's git repo
@@ -117,36 +122,25 @@ func TestProvisionAgentLegacyTemplateCleanup(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	projectScionDir := filepath.Join(tmpDir, ".scion")
-	
+
 	// Add .scion/agents/ to gitignore
 	os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(".scion/agents/\n"), 0644)
 	runCmd(t, tmpDir, "git", "add", ".gitignore")
 	runCmd(t, tmpDir, "git", "commit", "-m", "add gitignore")
 
-	// Create a template WITHOUT a home directory (legacy style)
+	// Create a legacy template WITH a harness field (should be rejected)
 	tplDir := filepath.Join(projectScionDir, "templates", "legacy-tpl")
 	os.MkdirAll(tplDir, 0755)
-	
-	// Create scion-agent.json in template root
 	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"harness": "test"}`), 0644)
-	
-	// Create another file that SHOULD be copied
-	os.WriteFile(filepath.Join(tplDir, "bashrc"), []byte("echo hello"), 0644)
 
-	// Provision agent
+	// Provision agent - should fail with validation error
 	agentName := "legacy-agent"
-	agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "legacy-tpl", "", projectScionDir, "", "", "", "")
-	if err != nil {
-		t.Fatalf("ProvisionAgent failed: %v", err)
+	_, _, _, err := ProvisionAgent(context.Background(), agentName, "legacy-tpl", "", "", projectScionDir, "", "", "", "")
+	if err == nil {
+		t.Fatal("expected error for legacy template with harness field, got nil")
 	}
 
-	// Verify bashrc exists
-	if _, err := os.Stat(filepath.Join(agentHome, "bashrc")); os.IsNotExist(err) {
-		t.Errorf("expected bashrc to be copied to agent home")
-	}
-
-	// Verify scion-agent.json should NOT exist in agentHome
-	if _, err := os.Stat(filepath.Join(agentHome, "scion-agent.json")); err == nil {
-		t.Errorf("scion-agent.json should NOT be present in agent home for legacy templates")
+	if !strings.Contains(err.Error(), "harness") {
+		t.Errorf("expected error to mention 'harness', got: %v", err)
 	}
 }
