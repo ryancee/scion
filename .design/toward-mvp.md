@@ -26,7 +26,7 @@ The full agent lifecycle works via the CLI:
 - Koa server with Lit SSR, Web Awesome components, OAuth (Google/GitHub)
 - Hub API proxy with auth forwarding
 - Grove and agent management pages with start/stop/delete actions
-- SSE + NATS server infrastructure (M7 — NATS client, SSE manager, `/events` endpoint)
+- SSE + NATS server infrastructure (M7 — NATS client, SSE manager, `/events` endpoint) *(NATS approach abandoned 2026-02-19; being replaced by in-process Go channels — see `web-realtime.md`)*
 - Full xterm.js terminal with WebSocket PTY proxy (M9)
 
 ### Backend Infrastructure ✅
@@ -47,7 +47,7 @@ The full agent lifecycle works via the CLI:
 
 **Ref:** Frontend M8 (`frontend-milestones.md`)
 
-**Why this is first:** The server-side SSE/NATS infrastructure is complete (M7) — the Koa server has a NATS client, SSE manager, and `/events` endpoint with query-parameter-based subscriptions. What's missing is the client side: the browser doesn't connect to the SSE endpoint or react to events. Without this, the web UI feels dead — users must manually refresh to see state changes.
+**Why this is first:** The server-side SSE infrastructure is complete (M7) — the Koa server has an SSE manager and `/events` endpoint with query-parameter-based subscriptions. *(Note: The NATS backend for this is being replaced by in-process Go channels as the Koa BFF is consolidated into the Go binary — see `web-realtime.md`.)* What's missing is the client side: the browser doesn't connect to the SSE endpoint or react to events. Without this, the web UI feels dead — users must manually refresh to see state changes.
 
 **Scope:**
 

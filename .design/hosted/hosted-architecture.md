@@ -27,7 +27,9 @@ graph TD
     
     subgraph "Control Plane"
         Hub -->|DB| DB[(SQLite/Postgres)]
-        Hub -->|NATS| EventBus((Event Bus))
+        Hub -->|Events| EventBus((Event Bus))
+        %% 2026-02-19: NATS abandoned. Events use in-process channels.
+        %% See web-realtime.md for current design.
     end
 
     subgraph "Cloud Storage"

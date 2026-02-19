@@ -2520,7 +2520,9 @@ export class ApiKeys extends LitElement {
 
 ---
 
-## 12. NATS Integration
+## 12. Real-Time Event Integration
+
+> **2026-02-19 — NATS approach abandoned.** The NATS-based event transport described in this section has been superseded by an in-process Go channel design. The Koa BFF is being consolidated into the Go binary, eliminating the need for NATS as a cross-process bridge. See `web-realtime.md` for the current design. The SSE transport model, subject hierarchy, and subscription semantics described below remain valid — only the backend delivery mechanism (NATS) is replaced by `ChannelEventPublisher`.
 
 ### 12.1 Transport Design: SSE for State, WebSocket for PTY
 

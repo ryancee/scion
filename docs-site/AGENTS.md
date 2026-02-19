@@ -40,7 +40,7 @@ The documentation is organized into five functional pillars. The "Intersection" 
 ### III. Administrator's Guide (Ops/Admins)
 *   **Local Governance**: Detailed `settings.json` configuration and environment variable substitution.
 *   **Infrastructure Deployment**:
-    *   Setting up the Scion Hub (Persistence, NATS, Web Server).
+    *   Setting up the Scion Hub (Persistence, Web Server).
     *   Provisioning Runtime Brokers (Docker, Podman, Apple Virtualization).
     *   Kubernetes Integration (Pod management, SCM strategies).
 *   **Security & Identity**:

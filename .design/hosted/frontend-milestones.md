@@ -18,7 +18,7 @@ For architectural details and component specifications, see **`web-frontend-desi
 | M4 | Complete | Authentication Flow |
 | M5 | Complete | Hub API Proxy |
 | M6 | Complete | Grove & Agent Pages |
-| M7 | Complete | SSE + NATS Server Infrastructure |
+| M7 | Complete | SSE + NATS Server Infrastructure *(NATS abandoned, see `web-realtime.md`)* |
 | M8 | Complete | Client Real-Time State Management |
 | M9 | Complete | Terminal Component |
 | M10 | Not Started | Agent Creation Workflow |
@@ -367,6 +367,8 @@ Create a simple mock for development without a real Hub:
 ---
 
 ## Milestone 7: SSE + NATS Server Infrastructure
+
+> **2026-02-19 — NATS approach abandoned.** The NATS-based SSE infrastructure implemented in this milestone will be replaced by an in-process Go channel design (`ChannelEventPublisher`) as the Koa BFF is consolidated into the Go binary. The SSE endpoint semantics (subject-based query parameters, event format, heartbeats) remain the same — only the backend transport changes. See `web-realtime.md` for the current design and migration stages.
 
 **Goal:** Implement the server-side infrastructure for real-time updates: NATS client, SSE Manager, and the `/events` endpoint with query-parameter-based subscriptions (WatchRequest pattern). See `web-frontend-design.md` §12 for the full architectural rationale.
 

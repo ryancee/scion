@@ -1,5 +1,7 @@
 # Web NATS + SSE Real-Time Testing Walkthrough
 
+> **2026-02-19 — NATS approach abandoned.** This walkthrough documents testing for the NATS-based SSE pipeline, which is being replaced by an in-process Go channel design (`ChannelEventPublisher`). The Koa BFF is being consolidated into the Go binary, eliminating NATS as a runtime dependency. See `.design/hosted/web-realtime.md` for the current design. This walkthrough remains as a historical reference for the Koa/NATS implementation while it is still in use during the migration.
+
 This guide provides step-by-step instructions for testing the NATS-to-SSE real-time event pipeline in the Scion Web Frontend (Milestones 7 and 8).
 
 ## Architecture Overview

@@ -124,7 +124,7 @@ All store interfaces defined in `pkg/store/store.go`:
 | M4 | OAuth Authentication Flow | ✅ Complete |
 | M5 | Hub API Proxy | ✅ Complete |
 | M6 | Grove & Agent Management Pages | ✅ Complete |
-| M7 | SSE + NATS Server Infrastructure | ✅ Complete |
+| M7 | SSE + NATS Server Infrastructure | ✅ Complete (NATS approach abandoned 2026-02-19, see `web-realtime.md`) |
 | M8 | Client Real-Time State Management | ❌ Not Started |
 | M9 | Terminal Component (xterm.js) | ✅ Complete |
 | M10 | Agent Creation Wizard | ❌ Not Started |
