@@ -994,3 +994,66 @@ func TestSSEHandler_RequiresAuth(t *testing.T) {
 	resp := rec.Result()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
+
+func TestLoginPageRendersLoginComponent(t *testing.T) {
+	// /login is a public route so no dev-auth needed
+	ws := newTestWebServer(t, WebServerConfig{})
+
+	req := httptest.NewRequest("GET", "/login", nil)
+	rec := httptest.NewRecorder()
+	ws.Handler().ServeHTTP(rec, req)
+
+	resp := rec.Result()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, html, "scion-login-page")
+	assert.NotContains(t, html, "<scion-app>")
+}
+
+func TestNonLoginPageRendersAppComponent(t *testing.T) {
+	ws := newDevAuthWebServer(t)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	ws.Handler().ServeHTTP(rec, req)
+
+	resp := rec.Result()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, html, "<scion-app></scion-app>")
+	assert.NotContains(t, html, "<scion-login-page")
+}
+
+func TestLoginPageOAuthAttributes(t *testing.T) {
+	ws := newTestWebServer(t, WebServerConfig{})
+
+	// Set up OAuth service with Google configured for web
+	oauthSvc := NewOAuthService(OAuthConfig{
+		Web: OAuthClientConfig{
+			Google: OAuthProviderConfig{
+				ClientID:     "test-google-id",
+				ClientSecret: "test-google-secret",
+			},
+		},
+	})
+	ws.SetOAuthService(oauthSvc)
+
+	req := httptest.NewRequest("GET", "/login", nil)
+	rec := httptest.NewRecorder()
+	ws.Handler().ServeHTTP(rec, req)
+
+	resp := rec.Result()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, html, "googleEnabled")
+	assert.NotContains(t, html, "githubEnabled")
+}
