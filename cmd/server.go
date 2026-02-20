@@ -96,9 +96,12 @@ var serverCmd = &cobra.Command{
 	Long: `Commands for managing the Scion server components.
 
 The server provides:
-- Hub API: Central registry for groves, agents, and templates (port 9810)
+- Hub API: Central registry for groves, agents, and templates (standalone: port 9810)
 - Runtime Broker API: Agent lifecycle management on compute nodes (port 9800)
-- Web Frontend: Browser-based UI (--enable-web, port 8080)`,
+- Web Frontend: Browser-based UI (--enable-web, port 8080)
+
+In combined mode (--enable-hub --enable-web), the Hub API is mounted on the
+web server's port (default 8080) and the standalone Hub listener is not started.`,
 }
 
 // serverStartCmd represents the server start command
@@ -767,9 +770,15 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			hubEndpointForRH = settings.Hub.Endpoint
 		}
 
-		// If still empty and hub is co-located, use localhost for heartbeat and hydration
+		// If still empty and hub is co-located, use localhost for heartbeat and hydration.
+		// When --enable-web is active, the Hub API is mounted on the web server's mux,
+		// so use webPort instead of the standalone hub port.
 		if hubEndpointForRH == "" && enableHub {
-			hubEndpointForRH = fmt.Sprintf("http://localhost:%d", cfg.Hub.Port)
+			port := cfg.Hub.Port
+			if enableWeb {
+				port = webPort
+			}
+			hubEndpointForRH = fmt.Sprintf("http://localhost:%d", port)
 			if enableDebug {
 				log.Printf("Co-located Hub detected: using %s for heartbeat and template hydration", hubEndpointForRH)
 			}
@@ -1290,7 +1299,7 @@ func init() {
 
 	// Hub API flags
 	serverStartCmd.Flags().BoolVar(&enableHub, "enable-hub", false, "Enable the Hub API")
-	serverStartCmd.Flags().IntVar(&hubPort, "port", 9810, "Hub API port")
+	serverStartCmd.Flags().IntVar(&hubPort, "port", 9810, "Hub API port (standalone mode only; ignored when --enable-web is set, use --web-port instead)")
 	serverStartCmd.Flags().StringVar(&hubHost, "host", "0.0.0.0", "Hub API host to bind")
 	serverStartCmd.Flags().StringVar(&dbURL, "db", "", "Database URL/path")
 

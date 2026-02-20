@@ -72,7 +72,7 @@ Environment=\"SCION_SERVER_AUTH_AUTHORIZEDDOMAINS=google.com\"
 StandardOutput=journal
 StandardError=journal
 ExecStartPre=/usr/bin/env
-ExecStart=%s --global server start --debug --enable-hub --enable-runtime-broker --enable-web --port 9810 --runtime-broker-port 9800 --web-port 8080 --session-secret \${SESSION_SECRET} --auto-provide
+ExecStart=%s --global server start --debug --enable-hub --enable-runtime-broker --enable-web --runtime-broker-port 9800 --web-port 8080 --session-secret \${SESSION_SECRET} --auto-provide
 Restart=always
 RestartSec=5
 
@@ -87,20 +87,8 @@ rm "$TMP_SERVICE"
 TMP_CADDY=$(mktemp)
 cat <<EOF > "$TMP_CADDY"
 hub.demo.scion-ai.dev {
-    # Hub API routes
-    handle /api/* {
-        reverse_proxy localhost:9810
-    }
-    handle /healthz {
-        reverse_proxy localhost:9810
-    }
-    handle /metrics {
-        reverse_proxy localhost:9810
-    }
-    # Web UI (all other routes)
-    handle {
-        reverse_proxy localhost:8080
-    }
+    # In combined mode, Hub API and Web UI are served on a single port
+    reverse_proxy localhost:8080
     tls /etc/letsencrypt/live/demo.scion-ai.dev/fullchain.pem /etc/letsencrypt/live/demo.scion-ai.dev/privkey.pem
 }
 EOF
@@ -201,9 +189,9 @@ gcloud compute ssh "${INSTANCE_NAME}" --zone="${ZONE}" --command '
     fi
 
     # 10. Local Health Check
-    echo "Checking health locally on port 9810..."
+    echo "Checking health locally on port 8080..."
     for i in {1..10}; do
-        HEALTH_RESP=$(curl -s http://localhost:9810/healthz || true)
+        HEALTH_RESP=$(curl -s http://localhost:8080/healthz || true)
         if echo "$HEALTH_RESP" | grep -q "\"status\":\"healthy\""; then
             echo "Local health check passed: $HEALTH_RESP"
             break

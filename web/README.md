@@ -49,9 +49,9 @@ scion server start --enable-hub --enable-web --dev-auth \
   --web-assets-dir ./web/dist/client
 ```
 
-This starts:
-- **Hub API** on `:9810`
-- **Web frontend** on `:8080`
+This starts both the **Hub API** and **Web frontend** on `:8080` (combined mode).
+In combined mode (`--enable-hub --enable-web`), the Hub API is mounted on the web
+server's port and the standalone Hub listener is not started.
 
 Visit `http://localhost:8080`. You'll be automatically logged in as a dev user (`dev@localhost`, admin role).
 
@@ -139,7 +139,7 @@ The `--session-secret` should be a stable, random 32+ byte hex string. If omitte
 | `--base-url` | `http://localhost:{web-port}` | Public base URL for OAuth redirects |
 | `--dev-auth` | `false` | Enable dev auth (auto-generates token, bypasses OAuth) |
 | `--admin-emails` | | Comma-separated emails to auto-promote to admin role |
-| `--port` | `9810` | Hub API port (not web-specific, but commonly used alongside) |
+| `--port` | `9810` | Hub API port (standalone mode only; in combined mode with `--enable-web`, Hub API is served on `--web-port`) |
 | `--debug` | `false` | Enable debug logging and `/auth/debug` endpoint |
 
 ### Environment Variables

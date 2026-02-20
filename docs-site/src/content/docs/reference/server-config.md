@@ -51,7 +51,7 @@ Controls the central Hub API server.
 
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `port` | int | `9810` | HTTP port to listen on. |
+| `port` | int | `9810` | HTTP port to listen on (standalone mode). In combined mode (`--enable-web`), the Hub API is served on the web port instead and this setting is ignored. |
 | `host` | string | `"0.0.0.0"` | Network interface to bind to. |
 | `public_url` | string | | The externally accessible URL of the Hub (used for callbacks). |
 | `read_timeout` | duration | `"30s"` | HTTP read timeout. |

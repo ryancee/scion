@@ -14,21 +14,29 @@ This guide provides step-by-step instructions for manually testing the Hub API i
 # Build the scion binary
 go build -buildvcs=false -o scion .
 
-# Start the Hub API server (default: port 9810, SQLite database)
-./scion server start
+# Start the Hub API server in standalone mode (default: port 9810, SQLite database)
+./scion server start --enable-hub
 
-# Or with custom settings
-./scion server start --port 8080 --db ./test-hub.db
+# Or in combined mode with the web frontend (Hub API served on port 8080)
+./scion server start --enable-hub --enable-web --dev-auth
+
+# Or with custom settings (standalone mode)
+./scion server start --enable-hub --port 8080 --db ./test-hub.db
 ```
 
-You should see output like:
+You should see output like (standalone mode):
 ```
 2025/01/25 10:00:00 Starting Hub API server on 0.0.0.0:9810
 2025/01/25 10:00:00 Database: sqlite (/home/user/.scion/hub.db)
 2025/01/25 10:00:00 Hub API server starting on 0.0.0.0:9810
 ```
 
+In combined mode (`--enable-web`), the Hub API is served on the web port (default 8080) instead.
+
 ## 2. Test Health Endpoints
+
+> **Note**: The examples below use `localhost:9810` (standalone mode). If running in
+> combined mode (`--enable-web`), replace `9810` with `8080` (or your `--web-port` value).
 
 ### Health Check
 ```bash
@@ -366,7 +374,7 @@ Here's a complete workflow script:
 #!/bin/bash
 set -e
 
-BASE_URL="http://localhost:9810"
+BASE_URL="http://localhost:9810"  # Use port 8080 in combined mode (--enable-web)
 
 echo "=== 1. Health Check ==="
 curl -s $BASE_URL/healthz | jq
@@ -439,11 +447,12 @@ rm ./test-hub.db
 
 ### Port Already in Use
 ```bash
-# Find process using port 9810
+# Find process using port 9810 (standalone) or 8080 (combined mode)
 lsof -i :9810
+lsof -i :8080
 
-# Use a different port
-./scion server start --port 9811
+# Use a different port (standalone mode)
+./scion server start --enable-hub --port 9811
 ```
 
 ### Database Locked

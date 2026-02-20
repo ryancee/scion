@@ -39,7 +39,7 @@ schema_version: "1"
 server:
   log_level: info
   hub:
-    port: 9810
+    port: 9810       # Used in standalone mode only
     host: 0.0.0.0
   database:
     driver: sqlite
@@ -47,6 +47,10 @@ server:
   auth:
     dev_mode: true
 ```
+
+:::note[Combined Mode]
+When running with `--enable-web`, the Hub API is mounted on the web server's port (default 8080) and the standalone Hub listener is not started. The `hub.port` setting only applies when the Hub runs without `--enable-web`.
+:::
 
 See the [Server Configuration Reference](/reference/server-config) for all available fields.
 
@@ -105,10 +109,16 @@ The Hub stores agent templates and other artifacts.
 The Hub is available as a Docker image.
 
 ```bash
+# Standalone Hub (no web frontend)
 docker run -p 9810:9810 \
   -e SCION_SERVER_HUB_PORT=9810 \
   -v ~/.scion:/root/.scion \
   ghcr.io/ptone/scion-hub:latest
+
+# Combined mode (Hub + Web on port 8080)
+docker run -p 8080:8080 \
+  -v ~/.scion:/root/.scion \
+  ghcr.io/ptone/scion-hub:latest --enable-hub --enable-web
 ```
 
 (Or use `podman run` with the same arguments).
