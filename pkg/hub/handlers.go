@@ -17,6 +17,7 @@ package hub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -526,18 +527,49 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var warnings []string
 	if dispatcher := s.GetDispatcher(); dispatcher != nil {
 		if !req.ProvisionOnly {
-			if err := dispatcher.DispatchAgentCreate(ctx, agent); err != nil {
-				// Log the error but don't fail the request - agent is created in Hub
-				warnings = append(warnings, "Failed to dispatch to runtime broker: "+err.Error())
-				// The agent remains in pending status
-			} else {
-				// agent.Status is already set by applyBrokerResponse in DispatchAgentCreate.
-				// Only fall back to provisioning if the broker didn't report a status.
-				if agent.Status == store.AgentStatusPending {
+			// Use env-gather dispatch if requested
+			if req.GatherEnv {
+				envReqs, err := dispatcher.DispatchAgentCreateWithGather(ctx, agent)
+				if err != nil {
+					warnings = append(warnings, "Failed to dispatch to runtime broker: "+err.Error())
+				} else if envReqs != nil {
+					// Broker returned 202: needs env gather
 					agent.Status = store.AgentStatusProvisioning
+					if err := s.store.UpdateAgent(ctx, agent); err != nil {
+						slog.Warn("Failed to update agent status for env-gather", "error", err)
+					}
+
+					s.enrichAgent(ctx, agent, grove, nil)
+					hubEnvGather := s.buildEnvGatherResponse(ctx, agent, envReqs)
+
+					writeJSON(w, http.StatusAccepted, CreateAgentResponse{
+						Agent:    agent,
+						Warnings: warnings,
+						EnvGather: hubEnvGather,
+					})
+					return
+				} else {
+					if agent.Status == store.AgentStatusPending {
+						agent.Status = store.AgentStatusProvisioning
+					}
+					if err := s.store.UpdateAgent(ctx, agent); err != nil {
+						warnings = append(warnings, "Failed to update agent status: "+err.Error())
+					}
 				}
-				if err := s.store.UpdateAgent(ctx, agent); err != nil {
-					warnings = append(warnings, "Failed to update agent status: "+err.Error())
+			} else {
+				if err := dispatcher.DispatchAgentCreate(ctx, agent); err != nil {
+					// Log the error but don't fail the request - agent is created in Hub
+					warnings = append(warnings, "Failed to dispatch to runtime broker: "+err.Error())
+					// The agent remains in pending status
+				} else {
+					// agent.Status is already set by applyBrokerResponse in DispatchAgentCreate.
+					// Only fall back to provisioning if the broker didn't report a status.
+					if agent.Status == store.AgentStatusPending {
+						agent.Status = store.AgentStatusProvisioning
+					}
+					if err := s.store.UpdateAgent(ctx, agent); err != nil {
+						warnings = append(warnings, "Failed to update agent status: "+err.Error())
+					}
 				}
 			}
 		} else {
@@ -561,6 +593,120 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, CreateAgentResponse{
 		Agent:    agent,
 		Warnings: warnings,
+	})
+}
+
+// buildEnvGatherResponse converts a broker's env requirements into the Hub-level
+// response format, enriching it with scope information from the dispatcher.
+func (s *Server) buildEnvGatherResponse(ctx context.Context, agent *store.Agent, brokerReqs *RemoteEnvRequirementsResponse) *EnvGatherResponse {
+	resp := &EnvGatherResponse{
+		AgentID:   agent.ID,
+		Required:  brokerReqs.Required,
+		BrokerHas: brokerReqs.BrokerHas,
+		Needs:     brokerReqs.Needs,
+	}
+
+	// Build hubHas with scope info
+	// Try to determine the scope for each key the Hub provided
+	for _, key := range brokerReqs.HubHas {
+		source := EnvSource{Key: key, Scope: "hub"}
+
+		// Check if we can determine a more specific scope
+		if agent.OwnerID != "" {
+			vars, err := s.store.ListEnvVars(ctx, store.EnvVarFilter{Scope: "user", ScopeID: agent.OwnerID, Key: key})
+			if err == nil && len(vars) > 0 {
+				source.Scope = "user"
+			}
+		}
+		if source.Scope == "hub" && agent.GroveID != "" {
+			vars, err := s.store.ListEnvVars(ctx, store.EnvVarFilter{Scope: "grove", ScopeID: agent.GroveID, Key: key})
+			if err == nil && len(vars) > 0 {
+				source.Scope = "grove"
+			}
+		}
+		if source.Scope == "hub" {
+			// Check if it came from config
+			if agent.AppliedConfig != nil {
+				if _, ok := agent.AppliedConfig.Env[key]; ok {
+					source.Scope = "config"
+				}
+			}
+		}
+		resp.HubHas = append(resp.HubHas, source)
+	}
+
+	return resp
+}
+
+// submitAgentEnv handles POST /api/v1/groves/{groveId}/agents/{agentId}/env
+// CLI submits gathered env vars after receiving a 202 env-gather response.
+func (s *Server) submitAgentEnv(w http.ResponseWriter, r *http.Request, groveID, agentID string) {
+	ctx := r.Context()
+
+	var req SubmitEnvRequest
+	if err := readJSON(r, &req); err != nil {
+		BadRequest(w, "Invalid request body: "+err.Error())
+		return
+	}
+
+	if len(req.Env) == 0 {
+		ValidationError(w, "env map is required and must not be empty", nil)
+		return
+	}
+
+	// Resolve agent
+	agent, err := s.store.GetAgentBySlug(ctx, groveID, agentID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			agent, err = s.store.GetAgent(ctx, agentID)
+			if err != nil {
+				writeErrorFromErr(w, err, "")
+				return
+			}
+			if agent.GroveID != groveID {
+				NotFound(w, "Agent")
+				return
+			}
+		} else {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+	}
+
+	// Verify agent is in a state that expects env submission
+	if agent.Status != store.AgentStatusProvisioning && agent.Status != store.AgentStatusPending {
+		writeError(w, http.StatusConflict, "invalid_state",
+			fmt.Sprintf("agent is in '%s' status; env submission only valid during provisioning", agent.Status), nil)
+		return
+	}
+
+	// Dispatch finalize-env to the broker
+	dispatcher := s.GetDispatcher()
+	if dispatcher == nil || agent.RuntimeBrokerID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			"cannot finalize env: no runtime broker available", nil)
+		return
+	}
+
+	if err := dispatcher.DispatchFinalizeEnv(ctx, agent, req.Env); err != nil {
+		RuntimeError(w, "Failed to finalize env on runtime broker: "+err.Error())
+		return
+	}
+
+	// Update agent status from broker response
+	if agent.Status == store.AgentStatusProvisioning || agent.Status == store.AgentStatusPending {
+		agent.Status = store.AgentStatusRunning
+	}
+	if err := s.store.UpdateAgent(ctx, agent); err != nil {
+		slog.Warn("Failed to update agent status after env submit", "error", err)
+	}
+
+	// Enrich and return
+	grove, _ := s.store.GetGrove(ctx, groveID)
+	s.enrichAgent(ctx, agent, grove, nil)
+
+	writeJSON(w, http.StatusOK, CreateAgentResponse{
+		Agent: agent,
 	})
 }
 
@@ -2102,6 +2248,8 @@ func (s *Server) handleGroveAgentAction(w http.ResponseWriter, r *http.Request, 
 		s.handleAgentLifecycle(w, r, agent.ID, action)
 	case "message":
 		s.handleAgentMessage(w, r, agent.ID)
+	case "env":
+		s.submitAgentEnv(w, r, groveID, agentID)
 	default:
 		NotFound(w, "Action")
 	}
