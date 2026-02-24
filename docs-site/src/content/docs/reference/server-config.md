@@ -57,6 +57,8 @@ Controls the central Hub API server.
 | `read_timeout` | duration | `"30s"` | HTTP read timeout. |
 | `write_timeout` | duration | `"60s"` | HTTP write timeout. |
 | `admin_emails` | list | `[]` | List of emails granted super-admin access. |
+| `soft_delete_retention` | duration | | Duration to retain soft-deleted agents (e.g., `"72h"`). |
+| `soft_delete_retain_files` | bool | `false` | Preserve workspace files during the soft-delete period. |
 | `cors` | object | | CORS configuration (see below). |
 
 #### CORS (`server.hub.cors`)

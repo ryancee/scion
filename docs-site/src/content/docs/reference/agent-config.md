@@ -22,6 +22,8 @@ Previous versions of Scion used `scion-agent.json`. The new versioned settings s
 | :--- | :--- | :--- |
 | `schema_version` | string | Should be `"1"`. |
 | `default_harness_config` | string | The name of the default harness config to use (e.g., `gemini`, `claude`). |
+| `agent_instructions` | string | Role-specific instructions for the agent (harness-agnostic). |
+| `system_prompt` | string | The system prompt to use for the agent (harness-agnostic). |
 | `image` | string | Override the container image defined in the harness config. |
 | `env` | map | Environment variables to inject into the container. |
 | `volumes` | list | Additional volume mounts. |
@@ -61,9 +63,54 @@ Define auxiliary containers to run alongside the agent (e.g., a headless browser
 services:
   - name: browser
     command: ["chromium", "--headless"]
+    env:
+      DISPLAY: ":99"
     ready_check:
       type: tcp
       target: "localhost:9222"
+  - name: delayed-job
+    command: ["./worker.sh"]
+    ready_check:
+      type: delay
+      target: "5s"
+```
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `name` | string | **Required**. Service name. |
+| `command` | list | **Required**. Entrypoint and arguments. |
+| `restart` | string | Restart policy: `no`, `always`, or `on-failure`. |
+| `env` | map | Environment variables for the service. |
+| `ready_check` | object | Health check to determine if the service is ready. |
+
+#### Ready Check (`ready_check`)
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `type` | string | `tcp`, `http`, or `delay`. |
+| `target` | string | Host:port (tcp/http) or duration (delay). |
+| `timeout` | string | Maximum wait time. |
+
+### Hub Override (`hub`)
+
+Specify a different Hub endpoint for this agent.
+
+```yaml
+hub:
+  endpoint: "https://hub.example.com"
+```
+
+### Required Secrets (`secrets`)
+
+Define secrets required by the agent. These follow the same schema as [Orchestrator Settings Secrets](/reference/orchestrator-settings/#required-secrets).
+
+### Gemini Settings (`gemini`)
+
+Harness-specific settings for Gemini.
+
+```yaml
+gemini:
+  auth_selectedType: "vertex-ai"
 ```
 
 ### Telemetry (`telemetry`)
@@ -92,8 +139,8 @@ Overrides for Kubernetes runtimes.
 ```yaml
 kubernetes:
   namespace: "custom-ns"
-  service_account_name: "workload-identity-sa"
-  runtime_class_name: "gvisor"
+  serviceAccountName: "workload-identity-sa"
+  runtimeClassName: "gvisor"
 ```
 
 ## Resolution Logic

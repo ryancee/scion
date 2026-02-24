@@ -15,8 +15,9 @@ The Gemini harness supports multiple authentication methods:
 - **Google Cloud (Vertex AI)**: Uses Application Default Credentials (ADC) via `gcloud`.
 
 ### Configuration
+- **scion-agent.yaml**: Can be configured via `agent_instructions` and `system_prompt` fields in the template.
 - **Settings File**: `~/.gemini/settings.json` (inside the agent container).
-- **System Prompt**: `~/.gemini/system_prompt.md` can be used to set a custom system prompt.
+- **System Prompt**: `~/.gemini/system_prompt.md` is automatically seeded if `system_prompt` is provided in the agent config.
 
 ### Known Limitations
 - The `gemini` CLI tool must be installed in the container image (included in default images).
@@ -33,6 +34,7 @@ A harness for Anthropic's "Claude Code" agent.
 - **Manual Login**: You can run `claude login` inside the agent, which generates a `~/.claude.json` file. Scion will preserve this file across sessions.
 
 ### Configuration
+- **scion-agent.yaml**: Can be configured via `agent_instructions` and `system_prompt` fields in the template.
 - **Config File**: `~/.claude.json`. Scion manages project-specific settings in this file to ensure the agent respects the workspace boundaries.
 - **Projects**: Scion automatically configures the current workspace as a project in `.claude.json`.
 

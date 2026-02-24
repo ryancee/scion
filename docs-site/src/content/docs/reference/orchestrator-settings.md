@@ -65,7 +65,7 @@ hub:
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `enabled` | bool | Whether to enable Hub integration for this grove. |
-| `endpoint` | string | The Hub API endpoint URL. |
+| `endpoint` | string | The Hub API endpoint URL. Can be overridden per-agent in `scion-agent.yaml`. |
 | `grove_id` | string | The unique identifier for this grove on the Hub. |
 | `local_only` | bool | If `true`, forces local-only operation even if the Hub is configured. |
 
@@ -102,6 +102,7 @@ runtimes:
 | `context` | string | (Kubernetes) The kubectl context name. |
 | `namespace` | string | (Kubernetes) The target namespace. |
 | `sync` | string | File sync strategy (e.g., `tar`, `mutagen`). |
+| `gke` | bool | (Kubernetes) Enable GKE-specific features (e.g., Workload Identity). Default: `false`. |
 | `env` | map | Environment variables to set for the runtime. |
 
 :::note
@@ -137,6 +138,29 @@ harness_configs:
 | `env` | map | Environment variables injected into the container. |
 | `volumes` | list | Volume mounts. |
 | `auth_selected_type` | string | Authentication method selection (harness-specific). |
+| `secrets` | list | Required secrets for this harness configuration (see below). |
+
+### Required Secrets
+
+Define secrets that must be provided to the agent.
+
+```yaml
+secrets:
+  - key: GEMINI_API_KEY
+    description: "Gemini API key"
+    type: environment
+  - key: service_account
+    description: "Service account JSON"
+    type: file
+    target: /run/secrets/sa.json
+```
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `key` | string | **Required**. The secret key name. |
+| `description` | string | Human-readable description. |
+| `type` | string | Projection type: `environment` (default), `variable`, or `file`. |
+| `target` | string | For `file` type, the path where the secret is mounted. |
 
 ## Profiles (`profiles`)
 
@@ -160,6 +184,7 @@ profiles:
 | `default_harness_config` | string | Default harness config to use. |
 | `env` | map | Environment variables merged into the runtime environment. |
 | `harness_overrides` | map | Per-harness-config overrides. Keys match `harness_configs` names. |
+| `secrets` | list | Required secrets for agents created under this profile. |
 
 ## Telemetry Configuration (`telemetry`)
 
