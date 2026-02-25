@@ -259,6 +259,7 @@ type ScionConfig struct {
 	Volumes     []VolumeMount     `json:"volumes,omitempty" yaml:"volumes,omitempty"`
 	Detached    *bool             `json:"detached" yaml:"detached"`
 	CommandArgs []string          `json:"command_args,omitempty" yaml:"command_args,omitempty"`
+	TaskFlag    string            `json:"task_flag,omitempty" yaml:"task_flag,omitempty"`
 	Model       string            `json:"model,omitempty" yaml:"model,omitempty"`
 	Kubernetes  *KubernetesConfig `json:"kubernetes,omitempty" yaml:"kubernetes,omitempty"`
 	Gemini      *GeminiConfig     `json:"gemini,omitempty" yaml:"gemini,omitempty"`

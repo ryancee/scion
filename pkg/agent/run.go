@@ -414,7 +414,13 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		Auth:             auth,
 		Harness:          h,
 		TelemetryEnabled: telemetryEnabled,
-		Task:             task,
+		Task: func() string {
+			// When task_flag is set, task is delivered via CommandArgs instead
+			if finalScionCfg != nil && finalScionCfg.TaskFlag != "" {
+				return ""
+			}
+			return task
+		}(),
 		CommandArgs: func() []string {
 			var args []string
 			if finalScionCfg != nil {
@@ -422,6 +428,10 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 				if finalScionCfg.Model != "" {
 					// Prepend model flag so it appears before user args but is passed in baseArgs
 					args = append([]string{"--model", finalScionCfg.Model}, args...)
+				}
+				// If task_flag is configured, append task as a flag value
+				if finalScionCfg.TaskFlag != "" && task != "" {
+					args = append(args, finalScionCfg.TaskFlag, task)
 				}
 			}
 			return args

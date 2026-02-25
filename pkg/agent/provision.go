@@ -349,6 +349,9 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	if len(hcDir.Config.Args) > 0 {
 		hcCfg.CommandArgs = hcDir.Config.Args
 	}
+	if hcDir.Config.TaskFlag != "" {
+		hcCfg.TaskFlag = hcDir.Config.TaskFlag
+	}
 	if hcDir.Config.Env != nil {
 		hcCfg.Env = hcDir.Config.Env
 	}

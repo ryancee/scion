@@ -799,6 +799,33 @@ func TestMergeScionConfig_NewFields(t *testing.T) {
 	})
 }
 
+func TestMergeScionConfig_TaskFlag(t *testing.T) {
+	t.Run("task_flag override replaces base", func(t *testing.T) {
+		base := &api.ScionConfig{TaskFlag: "--task"}
+		override := &api.ScionConfig{TaskFlag: "--input"}
+		got := MergeScionConfig(base, override)
+		if got.TaskFlag != "--input" {
+			t.Errorf("expected TaskFlag='--input', got %q", got.TaskFlag)
+		}
+	})
+
+	t.Run("task_flag empty override keeps base", func(t *testing.T) {
+		base := &api.ScionConfig{TaskFlag: "--input"}
+		override := &api.ScionConfig{}
+		got := MergeScionConfig(base, override)
+		if got.TaskFlag != "--input" {
+			t.Errorf("expected TaskFlag='--input', got %q", got.TaskFlag)
+		}
+	})
+
+	t.Run("task_flag set on nil base", func(t *testing.T) {
+		got := MergeScionConfig(nil, &api.ScionConfig{TaskFlag: "--input"})
+		if got.TaskFlag != "--input" {
+			t.Errorf("expected TaskFlag='--input', got %q", got.TaskFlag)
+		}
+	})
+}
+
 func boolP(b bool) *bool    { return &b }
 func float64P(f float64) *float64 { return &f }
 

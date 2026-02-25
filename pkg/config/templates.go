@@ -592,6 +592,9 @@ func MergeScionConfig(base, override *api.ScionConfig) *api.ScionConfig {
 	if len(override.CommandArgs) > 0 {
 		result.CommandArgs = override.CommandArgs
 	}
+	if override.TaskFlag != "" {
+		result.TaskFlag = override.TaskFlag
+	}
 	if override.Model != "" {
 		result.Model = override.Model
 	}

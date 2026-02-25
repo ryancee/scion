@@ -375,6 +375,7 @@ type HarnessConfigEntry struct {
 	Image            string            `json:"image,omitempty" yaml:"image,omitempty" koanf:"image"`
 	User             string            `json:"user,omitempty" yaml:"user,omitempty" koanf:"user"`
 	Model            string            `json:"model,omitempty" yaml:"model,omitempty" koanf:"model"`
+	TaskFlag         string            `json:"task_flag,omitempty" yaml:"task_flag,omitempty" koanf:"task_flag"`
 	Args             []string          `json:"args,omitempty" yaml:"args,omitempty" koanf:"args"`
 	Env              map[string]string `json:"env,omitempty" yaml:"env,omitempty" koanf:"env"`
 	Volumes          []api.VolumeMount `json:"volumes,omitempty" yaml:"volumes,omitempty" koanf:"volumes"`

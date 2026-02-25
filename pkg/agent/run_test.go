@@ -763,6 +763,137 @@ func TestTelemetryEnabledFlag(t *testing.T) {
 	}
 }
 
+func TestTaskFlagRunConfig(t *testing.T) {
+	// Verify that when task_flag is set in scion-agent.json, the task is
+	// delivered via CommandArgs (as a flag) instead of as a positional arg,
+	// and RunConfig.Task is empty.
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir := filepath.Join(tmpDir, ".scion")
+
+	// Create harness-config
+	hcDir := filepath.Join(globalScionDir, "harness-configs", "test-harness")
+	os.MkdirAll(hcDir, 0755)
+	os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte("harness: generic\nuser: scion\nimage: test-image:latest\n"), 0644)
+
+	// Create template
+	tplDir := filepath.Join(globalScionDir, "templates", "default")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"default_harness_config": "test-harness"}`), 0644)
+
+	os.WriteFile(filepath.Join(globalScionDir, "settings.yaml"), []byte(`schema_version: "1"
+active_profile: local
+profiles:
+  local:
+    runtime: docker
+`), 0644)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir := filepath.Join(projectDir, ".scion")
+	os.MkdirAll(projectScionDir, 0755)
+
+	t.Run("task_flag moves task into CommandArgs", func(t *testing.T) {
+		var capturedConfig runtime.RunConfig
+		mockRT := &runtime.MockRuntime{
+			ListFunc: func(ctx context.Context, labelFilter map[string]string) ([]api.AgentInfo, error) {
+				return []api.AgentInfo{}, nil
+			},
+			RunFunc: func(ctx context.Context, config runtime.RunConfig) (string, error) {
+				capturedConfig = config
+				return "mock-id", nil
+			},
+		}
+
+		agentDir := filepath.Join(projectScionDir, "agents", "flag-test")
+		os.MkdirAll(filepath.Join(agentDir, "home"), 0755)
+		os.WriteFile(filepath.Join(agentDir, "scion-agent.json"), []byte(`{
+			"harness": "generic",
+			"task_flag": "--input",
+			"command_args": ["adk", "run", "/opt/agent"]
+		}`), 0644)
+
+		mgr := NewManager(mockRT)
+		_, err := mgr.Start(context.Background(), api.StartOptions{
+			Name:      "flag-test",
+			GrovePath: projectScionDir,
+			Task:      "do something",
+			NoAuth:    true,
+		})
+		if err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		// Task should be empty since it's delivered via CommandArgs
+		if capturedConfig.Task != "" {
+			t.Errorf("expected Task='', got %q", capturedConfig.Task)
+		}
+
+		// CommandArgs should contain the task flag and value
+		args := capturedConfig.CommandArgs
+		found := false
+		for i, arg := range args {
+			if arg == "--input" && i+1 < len(args) && args[i+1] == "do something" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected CommandArgs to contain '--input', 'do something', got %v", args)
+		}
+	})
+
+	t.Run("no task_flag passes task normally", func(t *testing.T) {
+		var capturedConfig runtime.RunConfig
+		mockRT := &runtime.MockRuntime{
+			ListFunc: func(ctx context.Context, labelFilter map[string]string) ([]api.AgentInfo, error) {
+				return []api.AgentInfo{}, nil
+			},
+			RunFunc: func(ctx context.Context, config runtime.RunConfig) (string, error) {
+				capturedConfig = config
+				return "mock-id", nil
+			},
+		}
+
+		agentDir := filepath.Join(projectScionDir, "agents", "noflag-test")
+		os.MkdirAll(filepath.Join(agentDir, "home"), 0755)
+		os.WriteFile(filepath.Join(agentDir, "scion-agent.json"), []byte(`{
+			"harness": "generic",
+			"command_args": ["adk", "run", "/opt/agent"]
+		}`), 0644)
+
+		mgr := NewManager(mockRT)
+		_, err := mgr.Start(context.Background(), api.StartOptions{
+			Name:      "noflag-test",
+			GrovePath: projectScionDir,
+			Task:      "do something",
+			NoAuth:    true,
+		})
+		if err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		// Task should be passed directly
+		if capturedConfig.Task != "do something" {
+			t.Errorf("expected Task='do something', got %q", capturedConfig.Task)
+		}
+
+		// CommandArgs should NOT contain task
+		for _, arg := range capturedConfig.CommandArgs {
+			if arg == "do something" {
+				t.Error("expected CommandArgs to NOT contain the task text when task_flag is not set")
+			}
+		}
+	})
+}
+
 func TestTelemetryEnabledRunConfig(t *testing.T) {
 	// Integration test: verify that harness telemetry env vars appear in
 	// RunConfig when telemetry is enabled, and are absent when disabled.

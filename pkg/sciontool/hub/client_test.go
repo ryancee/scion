@@ -101,6 +101,38 @@ func TestNewClientWithConfig(t *testing.T) {
 	assert.True(t, client.IsConfigured())
 }
 
+func TestClient_IsConfigured(t *testing.T) {
+	t.Run("nil client", func(t *testing.T) {
+		var c *Client
+		assert.False(t, c.IsConfigured())
+	})
+
+	t.Run("empty client", func(t *testing.T) {
+		c := &Client{}
+		assert.False(t, c.IsConfigured())
+	})
+
+	t.Run("missing agentID", func(t *testing.T) {
+		c := NewClientWithConfig("http://hub.example.com", "token", "")
+		assert.False(t, c.IsConfigured())
+	})
+
+	t.Run("missing token", func(t *testing.T) {
+		c := NewClientWithConfig("http://hub.example.com", "", "agent-123")
+		assert.False(t, c.IsConfigured())
+	})
+
+	t.Run("missing hubURL", func(t *testing.T) {
+		c := NewClientWithConfig("", "token", "agent-123")
+		assert.False(t, c.IsConfigured())
+	})
+
+	t.Run("all fields set", func(t *testing.T) {
+		c := NewClientWithConfig("http://hub.example.com", "token", "agent-123")
+		assert.True(t, c.IsConfigured())
+	})
+}
+
 func TestClient_UpdateStatus(t *testing.T) {
 	// Create a test server
 	var receivedStatus StatusUpdate
@@ -148,7 +180,7 @@ func TestClient_UpdateStatus_Errors(t *testing.T) {
 		client := NewClientWithConfig("http://hub.example.com", "test-token", "")
 		err := client.UpdateStatus(context.Background(), StatusUpdate{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "agent ID not set")
+		assert.Contains(t, err.Error(), "not configured")
 	})
 
 	t.Run("server error", func(t *testing.T) {

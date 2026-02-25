@@ -144,8 +144,9 @@ func NewClientWithConfig(hubURL, token, agentID string) *Client {
 }
 
 // IsConfigured returns true if the client is properly configured.
+// Requires hubURL, token, and agentID to all be set.
 func (c *Client) IsConfigured() bool {
-	return c != nil && c.hubURL != "" && c.token != ""
+	return c != nil && c.hubURL != "" && c.token != "" && c.agentID != ""
 }
 
 // IsHostedMode returns true if the agent is running in hosted mode.
