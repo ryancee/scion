@@ -1,4 +1,40 @@
+# Release Notes (Feb 25, 2026)
 
+This release focuses on hardening the agent provisioning pipeline, streamlining template management through automatic bootstrapping, and enhancing the web authentication experience.
+
+## 🚀 Features
+* **Template Bootstrapping:** Local agent templates are now automatically bootstrapped into the Hub database during server startup, ensuring all defined templates are consistently available across the system.
+* **Custom ADK Runner Entrypoint:** Introduced a specialized runner entrypoint for Agent Development Kit (ADK) agents with native support for the `--input` flag, facilitating more robust automated execution.
+* **Wildcard Subdomain Authorization:** Expanded security configuration to support wildcard subdomain matching in `authorized-domains`, allowing for more flexible deployment architectures.
+
+## 🐛 Fixes
+* **Agent Provisioning & Creation:** Resolved multiple issues in the Hub-dispatched agent creation flow, including a 403 authorization fix, rejection of duplicate agent names, and a critical fix for container image resolution.
+* **Instruction Injection Logic:** Improved the reliability of agent instructions by implementing auto-detection for `agents.md` and ensuring stale instruction files (e.g., lowercase `claude.md`) are removed during provisioning.
+* **Web UI & Auth Persistence:** Fixed a bug where the authenticated user wasn't correctly fetched on page load, ensuring the profile and sign-out options are always visible in the header.
+* **Pathing & Scoping:** Corrected path resolution logic to prevent local-path groves from incorrectly using hub-native paths, and refined the `scion delete --stopped` command to strictly scope to the active grove.
+* **Environment Gathering:** Fixed a regression in the `env-gather` finalize-env flow to ensure the template slug is correctly preserved throughout the entire provisioning pipeline.
+* **Configuration Schema:** Added `task_flag` support to the settings schema and Hub configuration, improving the tracking and validation of agent task states.
+
+# Release Notes (Feb 24, 2026)
+
+This release introduces a robust policy-based authorization system, a comprehensive agent notification framework, and significant enhancements to hub-native groves and schema validation.
+
+## ⚠️ BREAKING CHANGES
+* **Policy-Based Authorization:** Strictly enforced authorization for agent operations. Agent creation now requires grove membership, while interaction (PTY, messaging) and deletion are restricted to the agent's owner (creator) or system administrators.
+
+## 🚀 Features
+* **Agent Notifications System:** Launched a multi-phase notification framework enabling real-time subscriptions to agent status events. This includes a new notification dispatcher, Hub API endpoints, and a `--notify` flag in the CLI for status tracking.
+* **Harness-Agnostic Templates:** Introduced support for role-based, harness-agnostic agent templates. New fields for `agent_instructions`, `system_prompt`, and `default_harness_config` allow templates to be defined by their role rather than specific LLM implementations.
+* **GKE Security Enhancements:** Added a dedicated `gke` runtime configuration option to enable GKE-specific features like Workload Identity, streamlining secure deployments on Google Kubernetes Engine.
+* **Hub-Native Workspace Management:** Advanced hub-native grove capabilities (Phase 3) with new support for direct workspace file management via the Hub API, reducing reliance on external Git repositories.
+* **ADK Agent Integration:** Added a specialized example and Docker template for Agent Development Kit (ADK) agents, facilitating the development of custom autonomous agents within the Scion ecosystem.
+* **Infrastructure & Models:** Upgraded the default agent model to `gemini-3-flash-preview` and introduced Cloud Build configurations for automated image delivery.
+
+## 🐛 Fixes
+* **Schema & Config Synchronization:** Conducted a comprehensive audit and sync between Go configuration structs and JSON schemas. This fixes field naming inconsistencies (e.g., camelCase for `runtimeClassName`) and improves cross-platform validation.
+* **Environment Variable Passthrough:** Corrected environment handling to treat empty variable values as implicit host environment passthroughs.
+* **Per-Agent Hub Overrides:** Enabled agents to specify custom Hub endpoints directly in their configuration, providing flexibility for agents to report to different Hubs than their parent grove.
+* **Soft-Delete Configuration:** Added explicit server-side settings for soft-delete retention periods and workspace file preservation.
 
 # Release Notes (Feb 23, 2026)
 
