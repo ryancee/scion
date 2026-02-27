@@ -579,6 +579,12 @@ export class ScionPageGroveDetail extends LitElement {
         this.agentScopeCapabilities = undefined;
       }
 
+      // Seed stateManager so SSE delta merging has full baseline data
+      stateManager.seedAgents(this.agents);
+      if (this.grove) {
+        stateManager.seedGroves([this.grove]);
+      }
+
       // Load workspace files for hub-native groves
       if (this.grove && !this.grove.gitRemote) {
         void this.loadWorkspaceFiles();

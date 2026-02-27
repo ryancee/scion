@@ -305,6 +305,36 @@ export class StateManager extends EventTarget {
     this.dispatchEvent(new CustomEvent(event, { detail: this.state }));
   }
 
+  /**
+   * Seed the agents map with full objects from a REST API response.
+   * Called after initial data fetch so that SSE delta merging has
+   * complete baseline data. Does not trigger notifications — the
+   * calling component already holds the data from its own fetch.
+   */
+  seedAgents(agents: Agent[]): void {
+    for (const agent of agents) {
+      this.state.agents.set(agent.id, agent);
+    }
+  }
+
+  /**
+   * Seed the groves map with full objects from a REST API response.
+   */
+  seedGroves(groves: Grove[]): void {
+    for (const grove of groves) {
+      this.state.groves.set(grove.id, grove);
+    }
+  }
+
+  /**
+   * Seed the brokers map with full objects from a REST API response.
+   */
+  seedBrokers(brokers: RuntimeBroker[]): void {
+    for (const broker of brokers) {
+      this.state.brokers.set(broker.id, broker);
+    }
+  }
+
   /** Disconnect the SSE connection. Called on page unload. */
   disconnect(): void {
     this.sseClient.disconnect();

@@ -309,6 +309,9 @@ export class ScionPageGroves extends LitElement {
         this.groves = data.groves || [];
         this.scopeCapabilities = data._capabilities;
       }
+
+      // Seed stateManager so SSE delta merging has full baseline data
+      stateManager.seedGroves(this.groves);
     } catch (err) {
       console.error('Failed to load groves:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load groves';

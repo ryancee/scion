@@ -308,6 +308,9 @@ export class ScionPageBrokers extends LitElement {
 
       const data = (await response.json()) as { brokers?: RuntimeBroker[] } | RuntimeBroker[];
       this.brokers = Array.isArray(data) ? data : data.brokers || [];
+
+      // Seed stateManager so SSE delta merging has full baseline data
+      stateManager.seedBrokers(this.brokers);
     } catch (err) {
       console.error('Failed to load brokers:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load brokers';

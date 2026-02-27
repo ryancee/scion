@@ -471,6 +471,12 @@ export class ScionPageAgentDetail extends LitElement {
           // Grove loading is optional, don't fail if it doesn't work
         }
       }
+
+      // Seed stateManager so SSE delta merging has full baseline data
+      stateManager.seedAgents([this.agent]);
+      if (this.grove) {
+        stateManager.seedGroves([this.grove]);
+      }
     } catch (err) {
       console.error('Failed to load agent:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load agent';

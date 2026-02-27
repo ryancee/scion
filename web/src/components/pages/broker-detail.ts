@@ -490,6 +490,11 @@ export class ScionPageBrokerDetail extends LitElement {
       } else {
         this.agents = [];
       }
+
+      // Seed stateManager so SSE delta merging has full baseline data
+      if (this.broker) {
+        stateManager.seedBrokers([this.broker]);
+      }
     } catch (err) {
       console.error('Failed to load broker:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load broker';
