@@ -130,7 +130,11 @@ func (hc *HubConnection) Start(ctx context.Context, server *Server) error {
 			hc.ControlChannel = NewControlChannelClient(ccConfig, server.Handler(), server, hc.Name)
 			go func() {
 				if err := hc.ControlChannel.Connect(ctx); err != nil {
-					slog.Error("Control channel error", "name", hc.Name, "error", err)
+					if ctx.Err() != nil {
+						slog.Info("Control channel stopped", "name", hc.Name)
+					} else {
+						slog.Error("Control channel error", "name", hc.Name, "error", err)
+					}
 				}
 			}()
 			slog.Info("Connecting to Hub control channel", "name", hc.Name, "endpoint", hc.HubEndpoint)

@@ -442,11 +442,12 @@ func (m *ControlChannelManager) pingLoop(hc *BrokerConnection) {
 // removeConnection removes a broker connection from the manager.
 func (m *ControlChannelManager) removeConnection(brokerID string) {
 	m.mu.Lock()
+	_, existed := m.connections[brokerID]
 	delete(m.connections, brokerID)
 	cb := m.onDisconnect
 	m.mu.Unlock()
 
-	if cb != nil {
+	if cb != nil && existed {
 		go cb(brokerID)
 	}
 }
@@ -531,11 +532,21 @@ func (m *ControlChannelManager) ListConnectedBrokers() []string {
 // Shutdown closes all connections and stops the manager.
 func (m *ControlChannelManager) Shutdown() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for brokerID, conn := range m.connections {
-		conn.Close()
+	// Disable disconnect callbacks during shutdown to prevent
+	// async callbacks from accessing resources (e.g. database)
+	// that may be closed after shutdown completes.
+	m.onDisconnect = nil
+	conns := make(map[string]*BrokerConnection, len(m.connections))
+	for k, v := range m.connections {
+		conns[k] = v
+	}
+	for brokerID := range m.connections {
 		delete(m.connections, brokerID)
+	}
+	m.mu.Unlock()
+
+	for _, conn := range conns {
+		conn.Close()
 	}
 }
 
