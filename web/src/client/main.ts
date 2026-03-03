@@ -49,6 +49,7 @@ import '@shoelace-style/shoelace/dist/components/dialog/dialog.js';
 import '@shoelace-style/shoelace/dist/components/alert/alert.js';
 import '@shoelace-style/shoelace/dist/components/radio-group/radio-group.js';
 import '@shoelace-style/shoelace/dist/components/radio-button/radio-button.js';
+import '@shoelace-style/shoelace/dist/components/switch/switch.js';
 
 // Import all components for client-side hydration and routing
 // App shell (imports shared components internally)
@@ -79,6 +80,7 @@ import '../components/pages/admin-groups.js';
 import '../components/pages/admin-group-detail.js';
 import '../components/pages/profile-env-vars.js';
 import '../components/pages/profile-secrets.js';
+import '../components/pages/profile-settings.js';
 import '../components/pages/settings.js';
 import '../components/pages/not-found.js';
 import '../components/pages/login.js';
@@ -127,6 +129,7 @@ const ROUTES: { pattern: RegExp; tag: string }[] = [
   { pattern: /^\/settings$/, tag: 'scion-page-settings' },
   { pattern: /^\/profile\/env$/, tag: 'scion-page-profile-env-vars' },
   { pattern: /^\/profile\/secrets$/, tag: 'scion-page-profile-secrets' },
+  { pattern: /^\/profile\/settings$/, tag: 'scion-page-profile-settings' },
   { pattern: /^\/profile$/, tag: 'scion-page-profile-env-vars' },
   { pattern: /^\/groves\/new$/, tag: 'scion-page-grove-create' },
   { pattern: /^\/groves\/[^/]+\/settings$/, tag: 'scion-page-grove-settings' },
@@ -144,7 +147,7 @@ const STANDALONE_ROUTES = new Set(['scion-login-page']);
 /**
  * Routes that render inside the profile shell instead of the main app shell
  */
-const PROFILE_ROUTES = new Set(['scion-page-profile-env-vars', 'scion-page-profile-secrets']);
+const PROFILE_ROUTES = new Set(['scion-page-profile-env-vars', 'scion-page-profile-secrets', 'scion-page-profile-settings']);
 
 /**
  * Initialize the client-side application
@@ -204,6 +207,7 @@ async function init(): Promise<void> {
     customElements.whenDefined('scion-page-settings'),
     customElements.whenDefined('scion-page-profile-env-vars'),
     customElements.whenDefined('scion-page-profile-secrets'),
+    customElements.whenDefined('scion-page-profile-settings'),
     customElements.whenDefined('scion-profile-shell'),
     customElements.whenDefined('scion-profile-nav'),
     customElements.whenDefined('scion-page-404'),

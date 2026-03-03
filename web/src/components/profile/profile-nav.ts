@@ -45,6 +45,10 @@ const PROFILE_SECTIONS: NavSection[] = [
       { path: '/profile/secrets', label: 'Secrets', icon: 'shield-lock' },
     ],
   },
+  {
+    title: 'Settings',
+    items: [{ path: '/profile/settings', label: 'Settings', icon: 'gear' }],
+  },
 ];
 
 @customElement('scion-profile-nav')
