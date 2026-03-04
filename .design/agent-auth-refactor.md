@@ -1,6 +1,6 @@
 # Agent Auth Refactor
 
-## Status: Draft
+## Status: Reviewed
 
 ## Problem Statement
 
@@ -106,7 +106,7 @@ type AuthConfig struct {
 - Add `GoogleCloudRegion` (sources: `GOOGLE_CLOUD_REGION`, `CLOUD_ML_REGION`, `GOOGLE_CLOUD_LOCATION`)
 - Add `OpenAIAPIKey` (source: `OPENAI_API_KEY`)
 - Add `CodexAPIKey` (source: `CODEX_API_KEY`)
-- Remove `VertexAPIKey` (redundant with `GoogleAPIKey`; if anything still references it, migrate to `GoogleAPIKey`)
+- Remove `VertexAPIKey` (redundant with `GoogleAPIKey`; all references removed outright, no deprecation path)
 
 ### Phase 2: Centralize Auth Gathering
 
@@ -168,7 +168,9 @@ func GatherAuth() AuthConfig {
 }
 ```
 
-**Settings overlay**: After `GatherAuth()`, the caller can overlay values from settings (agent settings, host settings, scion-agent.json) for things like `SelectedType` and API keys stored in settings files. This overlay logic currently lives in Gemini's `DiscoverAuth()` and should be extracted.
+**Settings overlay**: After `GatherAuth()`, the caller can overlay values from settings (agent settings, host settings, scion-agent.json) for things like `SelectedType`. This overlay logic currently lives in Gemini's `DiscoverAuth()` and should be extracted. The overlay should be limited to `SelectedType` and similar mode-selection fields; API keys in settings files should not silently supersede environment-sourced credentials.
+
+> **Out of scope**: The Gemini `selectedAuth` mechanism in `~/.gemini/settings.json` has its own complexity and should be refactored in a separate effort. This refactor provides the overlay hook but does not redesign the Gemini settings chain.
 
 ### Phase 3: Harness Auth Resolution (Per-Harness Preference Order)
 
@@ -194,14 +196,18 @@ type FileMapping struct {
 
 #### Claude Auth Resolution
 
+This replaces the current approach where Vertex auth is configured entirely through the harness-config `settings.json` `env:{}` block (hardcoded `CLAUDE_CODE_USE_VERTEX=1`, `CLOUD_ML_REGION`, `ANTHROPIC_VERTEX_PROJECT_ID`). That static env block will be removed and replaced by dynamic resolution here.
+
 ```
 Preference order:
 1. AnthropicAPIKey → set ANTHROPIC_API_KEY
 2. GoogleAppCredentials + GoogleCloudProject + GoogleCloudRegion → Vertex mode
    → set CLAUDE_CODE_USE_VERTEX=1, CLOUD_ML_REGION, ANTHROPIC_VERTEX_PROJECT_ID
    → propagate ADC file
-3. Fail: no valid auth
+3. Fail: no valid auth → clear error message listing required credentials
 ```
+
+**Error reporting**: On failure, produce an actionable message such as: *"Claude requires either ANTHROPIC_API_KEY or Vertex credentials (GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_REGION). Set the appropriate environment variables or configure hub secrets."*
 
 #### Gemini Auth Resolution
 
@@ -252,6 +258,8 @@ This flow works identically for both local and hub-dispatched modes:
 - **Local**: `GatherAuth()` reads from host env/filesystem. `overlaySettings()` applies local settings.
 - **Hub-dispatched**: `GatherAuth()` reads from broker env + injected `ResolvedSecrets` (environment-type secrets become env vars, file-type secrets are already written to target paths). The same `ResolveAuth()` logic applies.
 
+**Auth inputs to `agent.Start()`**: The `agent.Start()` function should derive auth exclusively from the environment (env vars, filesystem), resolved secrets, and harness/harness-config configuration. The existing `AuthProvider` interface is removed (see Decisions below). There is no separate injection point — `GatherAuth()` reads what's available in the process environment, and `ResolveAuth()` determines the auth method.
+
 ### Phase 5: Simplify Harness Interface
 
 The following Harness interface methods can be consolidated:
@@ -291,7 +299,8 @@ For file-type secrets, the Hub stores base64-encoded content and the runtime pro
 
 ### Step 1: Expand AuthConfig
 - Add `GoogleCloudRegion`, `OpenAIAPIKey`, `CodexAPIKey`
-- Remove `VertexAPIKey` (search for all references, migrate to `GoogleAPIKey`)
+- Remove `VertexAPIKey` outright (search for all references, delete them; no migration/deprecation path)
+- Remove `AuthProvider` interface from `pkg/api/types.go`
 - Update all test fixtures
 
 ### Step 2: Create GatherAuth
@@ -307,9 +316,15 @@ For file-type secrets, the Hub stores base64-encoded content and the runtime pro
 
 ### Step 4: Wire Into Provisioning
 - Update `agent.Start()` to use new flow: `GatherAuth → overlay → ResolveAuth → validate → apply`
+- Remove `AuthProvider` usage from `agent.Start()` — auth comes from env/secrets + harness `ResolveAuth()`
 - Update `runtime/common.go` to apply `ResolvedAuth` (env vars + files)
 - Ensure hub-dispatched path produces same results
 - Update broker `extractRequiredEnvKeys()` to consult `ResolveAuth`
+
+### Step 4a: Remove Claude Harness-Config Static Auth
+- Remove the `env:{}` block from Claude's `settings.json` embed (`pkg/harness/claude/embeds/settings.json`) that hardcodes `CLAUDE_CODE_USE_VERTEX=1`, `CLOUD_ML_REGION`, `ANTHROPIC_VERTEX_PROJECT_ID`
+- Claude's `ResolveAuth()` dynamically produces these env vars when Vertex credentials are available
+- Ensure Claude's `ResolveAuth()` produces clear error messages when no valid auth method is found
 
 ### Step 5: Clean Up Legacy Methods
 - Remove `DiscoverAuth` from interface (after all callers migrated)
@@ -319,83 +334,95 @@ For file-type secrets, the Hub stores base64-encoded content and the runtime pro
 
 ### Step 6: Validation and Error Reporting
 - Add `ValidateAuth()` that checks `ResolvedAuth` completeness before container launch
-- Produce clear error messages: "Claude requires ANTHROPIC_API_KEY or Vertex credentials (GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_REGION)"
+- Each harness's `ResolveAuth()` should produce clear, actionable error messages when auth is insufficient (e.g., "Claude requires ANTHROPIC_API_KEY or Vertex credentials (GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_REGION)")
 - Integrate with env-gather to only request what's actually needed
 
-## Open Questions
+### Step 7: Documentation
+- Document the auth resolution flow and per-harness preference orders
+- Document the hub secret name → AuthConfig field mapping
+- Document how to configure each auth method (API key, Vertex, OAuth, ADC) for each harness
 
-### 1. Should `ResolveAuth` return multiple viable methods?
+## Decisions
 
-Currently proposed as returning the single best method. An alternative is returning all viable methods ranked, letting the caller (or user) choose. This would complicate the flow but enable scenarios like "prefer Vertex but fall back to API key".
+The following design questions have been resolved based on review feedback.
 
-**Recommendation**: Return the single best method for now. The `SelectedType` field already allows users to force a specific method; auto-detection picks the best available.
+### D1. `ResolveAuth` returns a single best method
 
-### 2. How should Gemini settings.json integration work?
+`ResolveAuth` returns the single best auth method, not a ranked list. The `SelectedType` field allows users to force a specific method when auto-detection isn't desired.
 
-Gemini's `DiscoverAuth()` currently reads from `~/.gemini/settings.json` (agent and host) for API keys and `SelectedType`. With centralized `GatherAuth()`, we need to decide whether settings.json parsing belongs in the gather phase or the overlay phase.
+### D2. Gemini settings.json uses overlay pattern
 
-**Recommendation**: Settings overlay. `GatherAuth()` is env+filesystem only. Settings values are applied in `overlaySettings()`, which is called after `GatherAuth()` and before `ResolveAuth()`. This keeps `GatherAuth()` simple and source-agnostic.
+`GatherAuth()` is env+filesystem only. Settings values (like `SelectedType`) are applied in `overlaySettings()`, called after `GatherAuth()` and before `ResolveAuth()`. The overlay should be limited to mode-selection fields; API keys in settings files should not silently supersede environment-sourced credentials. The broader Gemini `selectedAuth` mechanism refactor is out of scope for this effort.
 
-### 3. File path normalization: when and how?
+### D3. File paths use `~` as portable home placeholder
 
-File paths in AuthConfig reference host paths (e.g., `/home/user/.config/gcloud/...`). These need to become container paths (e.g., `/home/scion/.config/gcloud/...`). Currently each harness does this ad-hoc in `PropagateFiles()` and `GetEnv()`.
+`ResolvedAuth.Files[].ContainerPath` uses `~` as the home directory placeholder. The runtime layer expands `~` to the actual container home at apply time. This normalizes the abstraction and avoids harness-level path manipulation.
 
-**Recommendation**: `ResolvedAuth.Files[].ContainerPath` uses `~` as the home directory placeholder. The runtime layer expands `~` to the actual container home at apply time. This normalizes the abstraction and avoids harness-level path manipulation.
+### D4. `GatherAuth` is harness-agnostic
 
-### 4. Should `GatherAuth` be harness-aware?
+`GatherAuth()` scans for all possible credentials regardless of which harness will consume them. The cost of a few extra `os.Stat` calls is negligible, and it keeps the architecture simple. `ResolveAuth()` is where harness-specificity lives.
 
-The current proposal has `GatherAuth()` scan for all possible credentials regardless of which harness will use them. This means it may check for files that aren't relevant (e.g., checking for `~/.codex/auth.json` when running a Claude agent).
+### D5. Remove `AuthProvider` interface
 
-**Recommendation**: Keep it harness-agnostic. The cost of a few extra `os.Stat` calls is negligible, and it simplifies the architecture. `ResolveAuth()` is where harness-specificity lives.
+The `AuthProvider` interface (`GetAuthConfig(context.Context) (AuthConfig, error)`) is removed. Currently `agent.Start()` uses it as an alternative to `DiscoverAuth()`:
 
-### 5. What about the `AuthProvider` interface?
+```go
+// Current code in agent.Start() (pkg/agent/run.go):
+if opts.Auth != nil {
+    auth, err = opts.Auth.GetAuthConfig(ctx)
+} else {
+    auth = h.DiscoverAuth(agentHome)
+}
+```
 
-The `AuthProvider` interface (`GetAuthConfig(context.Context) (AuthConfig, error)`) is currently used in `agent.Start()` as an alternative to `DiscoverAuth()`. With the new flow, `AuthProvider` could be the settings-overlay mechanism or could be removed entirely.
+With the new flow, `agent.Start()` should rely exclusively on:
+- **Environment**: env vars available in the process (set by the host, or injected from `ResolvedSecrets` for hub-dispatched agents)
+- **Filesystem**: well-known credential file paths (detected by `GatherAuth()`)
+- **Harness/Harness-config**: the harness's `ResolveAuth()` logic, informed by harness-config settings
 
-**Recommendation**: Keep `AuthProvider` as an injection point for testing and for cases where auth comes from an external source (e.g., a vault). The default implementation would be `GatherAuth() + overlaySettings()`.
+There is no need for a separate `AuthProvider` abstraction. The inputs are fully determined by the execution environment. For testing, `GatherAuth()` can be called in a test environment with controlled env vars and filesystem, or `ResolveAuth()` can be called directly with a synthetic `AuthConfig`.
 
-### 6. Claude Vertex auth: harness-config env vs AuthConfig?
+### D6. Claude Vertex auth moves from harness-config to dynamic resolution
 
-Currently Claude's Vertex auth is configured entirely through harness-config `settings.json` env vars (`CLAUDE_CODE_USE_VERTEX=1`, `CLOUD_ML_REGION=global`, `ANTHROPIC_VERTEX_PROJECT_ID=...`). The AuthConfig has no role. Should we bring this into the AuthConfig flow?
+The `env:{}` block in Claude's `settings.json` embed (`pkg/harness/claude/embeds/settings.json`) that hardcodes `CLAUDE_CODE_USE_VERTEX=1`, `CLOUD_ML_REGION=global`, `ANTHROPIC_VERTEX_PROJECT_ID=duet01` will be **removed**. Claude's `ResolveAuth()` will dynamically detect when `GoogleAppCredentials + GoogleCloudProject + GoogleCloudRegion` are available and produce the appropriate Vertex env vars. This unifies local and hub auth for Claude.
 
-**Recommendation**: Yes. Claude's `ResolveAuth()` should detect when `GoogleAppCredentials + GoogleCloudProject` are available and produce the Vertex env vars. The harness-config env vars become a static default that `ResolveAuth` can override when better credentials are available. This unifies local and hub auth for Claude.
+Clear error messages are critical: when no valid auth method is found, `ResolveAuth()` must explain exactly what credentials are needed and how to provide them.
 
-### 7. Breaking change: removing `VertexAPIKey`
+### D7. Remove `VertexAPIKey` outright
 
-`VertexAPIKey` appears in AuthConfig and Gemini's `GetEnv()` (mapped to `VERTEX_API_KEY`). The K8s runtime also references it in backward-compat fallback code. Removing it requires checking whether any deployed configurations reference it.
+`VertexAPIKey` is removed from `AuthConfig` with no deprecation path or migration shim. All references in `AuthConfig`, Gemini's `GetEnv()`, and the K8s runtime backward-compat code are deleted. Any existing configurations that reference `VERTEX_API_KEY` will fail with errors, which is acceptable for an alpha project.
 
-**Recommendation**: Deprecate rather than remove in the first pass. Map `VertexAPIKey → GoogleAPIKey` in `GatherAuth()` and log a deprecation warning. Remove in a follow-up once configs are migrated.
+### D8. All env var reads go through AuthConfig
 
-### 8. The `OPENAI_API_KEY` precedent: env vars read outside AuthConfig
-
-Both Codex and OpenCode read `OPENAI_API_KEY` directly in `GetEnv()` via `os.Getenv()`. This bypasses AuthConfig and means the key isn't visible to auth validation. Adding `OpenAIAPIKey` to AuthConfig fixes this, but we need to ensure no other harnesses have similar leaks.
-
-**Recommendation**: Audit all harness `GetEnv()` methods for direct `os.Getenv()` calls that should be in AuthConfig. The Codex harness also reads `CODEX_API_KEY` directly. Both should move into AuthConfig.
+All harness `GetEnv()` methods that read env vars via direct `os.Getenv()` calls (notably `OPENAI_API_KEY` in Codex/OpenCode, `CODEX_API_KEY` in Codex) must move into `AuthConfig` and be populated by `GatherAuth()`. This ensures all auth credentials are visible to validation and follow the single auth flow.
 
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Breaking existing local setups | Phase the rollout; keep `DiscoverAuth` as fallback initially |
+| Breaking existing local setups that use `VertexAPIKey` or `VERTEX_API_KEY` | Alpha project; break cleanly with clear errors. Users switch to `GoogleAPIKey` / `GOOGLE_API_KEY` |
+| Claude Vertex auth stops working when harness-config env:{} block is removed | `ResolveAuth()` must be wired before the env block is removed; test both API-key and Vertex paths |
 | Hub secrets not yet stored for all field types | Document the mapping; existing env-type secrets already work |
-| Gemini's complex settings.json chain | Extract to overlay function with thorough test coverage |
+| Gemini's complex settings.json chain | Extract to overlay function with thorough test coverage; full selectedAuth redesign is out of scope |
 | K8s runtime backward-compat code references old fields | Update K8s M1 fallback to use new field names |
 | Harness interface changes break external consumers | Alpha project; interface changes are acceptable per CLAUDE.md |
+| Insufficient auth produces confusing errors | Each `ResolveAuth()` must return detailed, actionable error messages listing required credentials |
 
 ## Files Affected
 
 ### Core Changes
-- `pkg/api/types.go` — AuthConfig struct, new ResolvedAuth type
+- `pkg/api/types.go` — AuthConfig struct (expand + remove VertexAPIKey), remove AuthProvider interface, new ResolvedAuth type
 - `pkg/api/harness.go` — Harness interface (add ResolveAuth, eventually remove DiscoverAuth/GetVolumes)
 - `pkg/harness/auth.go` — **New**: GatherAuth, overlaySettings
 - `pkg/harness/claude_code.go` — Add ResolveAuth, simplify GetEnv/PropagateFiles
+- `pkg/harness/claude/embeds/settings.json` — Remove static Vertex auth `env:{}` block
 - `pkg/harness/gemini_cli.go` — Add ResolveAuth, extract settings overlay, simplify GetEnv/PropagateFiles
 - `pkg/harness/generic.go` — Add ResolveAuth, simplify GetEnv/PropagateFiles
 - `pkg/harness/opencode.go` — Add ResolveAuth, simplify GetEnv/PropagateFiles
 - `pkg/harness/codex.go` — Add ResolveAuth, simplify GetEnv/PropagateFiles
 
 ### Provisioning Flow
-- `pkg/agent/run.go` — Use new GatherAuth → ResolveAuth flow
+- `pkg/agent/run.go` — Use new GatherAuth → ResolveAuth flow; remove AuthProvider usage
 - `pkg/runtime/common.go` — Apply ResolvedAuth (env + files)
 - `pkg/runtime/interface.go` — RunConfig may carry ResolvedAuth instead of AuthConfig
 
