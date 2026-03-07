@@ -270,3 +270,17 @@ func allActions(actions []Action) *Capabilities {
 	}
 	return &Capabilities{Actions: strs}
 }
+
+// capabilityAllows returns true when the capability set includes the action.
+func capabilityAllows(cap *Capabilities, action Action) bool {
+	if cap == nil {
+		return false
+	}
+	needle := string(action)
+	for _, allowed := range cap.Actions {
+		if allowed == needle {
+			return true
+		}
+	}
+	return false
+}

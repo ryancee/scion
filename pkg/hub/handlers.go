@@ -274,7 +274,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 
 	// Compute per-item and scope capabilities
 	identity := GetIdentityFromContext(ctx)
-	agents := make([]AgentWithCapabilities, len(result.Items))
+	agents := make([]AgentWithCapabilities, 0, len(result.Items))
 	if identity != nil {
 		resources := make([]Resource, len(result.Items))
 		for i := range result.Items {
@@ -282,11 +282,14 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := s.authzService.ComputeCapabilitiesBatch(ctx, identity, resources, "agent")
 		for i := range result.Items {
-			agents[i] = AgentWithCapabilities{Agent: result.Items[i], Cap: caps[i]}
+			if !capabilityAllows(caps[i], ActionRead) {
+				continue
+			}
+			agents = append(agents, AgentWithCapabilities{Agent: result.Items[i], Cap: caps[i]})
 		}
 	} else {
 		for i := range result.Items {
-			agents[i] = AgentWithCapabilities{Agent: result.Items[i]}
+			agents = append(agents, AgentWithCapabilities{Agent: result.Items[i]})
 		}
 	}
 
@@ -295,10 +298,15 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		scopeCap = s.authzService.ComputeScopeCapabilities(ctx, identity, "", "", "agent")
 	}
 
+	totalCount := result.TotalCount
+	if identity != nil {
+		totalCount = len(agents)
+	}
+
 	writeJSON(w, http.StatusOK, ListAgentsResponse{
 		Agents:       agents,
 		NextCursor:   result.NextCursor,
-		TotalCount:   result.TotalCount,
+		TotalCount:   totalCount,
 		ServerTime:   time.Now().UTC(),
 		Capabilities: scopeCap,
 	})
@@ -1071,6 +1079,13 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
+	if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
+		decision := s.authzService.CheckAccess(ctx, userIdent, agentResource(agent), ActionRead)
+		if !decision.Allowed {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden, "Access denied", nil)
+			return
+		}
+	}
 
 	// Enrich agent with grove and broker names
 	s.enrichAgent(ctx, agent, nil, nil)
@@ -1709,7 +1724,7 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 
 	// Compute per-item and scope capabilities
 	identity := GetIdentityFromContext(ctx)
-	groves := make([]GroveWithCapabilities, len(result.Items))
+	groves := make([]GroveWithCapabilities, 0, len(result.Items))
 	if identity != nil {
 		resources := make([]Resource, len(result.Items))
 		for i := range result.Items {
@@ -1717,11 +1732,14 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := s.authzService.ComputeCapabilitiesBatch(ctx, identity, resources, "grove")
 		for i := range result.Items {
-			groves[i] = GroveWithCapabilities{Grove: result.Items[i], Cap: caps[i]}
+			if !capabilityAllows(caps[i], ActionRead) {
+				continue
+			}
+			groves = append(groves, GroveWithCapabilities{Grove: result.Items[i], Cap: caps[i]})
 		}
 	} else {
 		for i := range result.Items {
-			groves[i] = GroveWithCapabilities{Grove: result.Items[i]}
+			groves = append(groves, GroveWithCapabilities{Grove: result.Items[i]})
 		}
 	}
 
@@ -1730,10 +1748,15 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 		scopeCap = s.authzService.ComputeScopeCapabilities(ctx, identity, "", "", "grove")
 	}
 
+	totalCount := result.TotalCount
+	if identity != nil {
+		totalCount = len(groves)
+	}
+
 	writeJSON(w, http.StatusOK, ListGrovesResponse{
 		Groves:       groves,
 		NextCursor:   result.NextCursor,
-		TotalCount:   result.TotalCount,
+		TotalCount:   totalCount,
 		Capabilities: scopeCap,
 	})
 }
@@ -3116,6 +3139,9 @@ func (s *Server) listRuntimeBrokers(w http.ResponseWriter, r *http.Request) {
 		// Build extended broker list with provider data
 		extendedBrokers := make([]RuntimeBrokerWithProvider, 0, len(result.Items))
 		for i, broker := range result.Items {
+			if caps != nil && !capabilityAllows(caps[i], ActionRead) {
+				continue
+			}
 			eb := RuntimeBrokerWithProvider{
 				RuntimeBroker: broker,
 				LocalPath:     brokerLocalPaths[broker.ID],
@@ -3126,26 +3152,40 @@ func (s *Server) listRuntimeBrokers(w http.ResponseWriter, r *http.Request) {
 			extendedBrokers = append(extendedBrokers, eb)
 		}
 
+		totalCount := result.TotalCount
+		if ident != nil {
+			totalCount = len(extendedBrokers)
+		}
+
 		writeJSON(w, http.StatusOK, ListRuntimeBrokersWithProviderResponse{
 			Brokers:    extendedBrokers,
 			NextCursor: result.NextCursor,
-			TotalCount: result.TotalCount,
+			TotalCount: totalCount,
 		})
 		return
 	}
 
-	brokersWithCaps := make([]RuntimeBrokerWithCapabilities, len(result.Items))
+	brokersWithCaps := make([]RuntimeBrokerWithCapabilities, 0, len(result.Items))
 	for i, broker := range result.Items {
-		brokersWithCaps[i] = RuntimeBrokerWithCapabilities{RuntimeBroker: broker}
-		if caps != nil && i < len(caps) {
-			brokersWithCaps[i].Cap = caps[i]
+		if caps != nil && !capabilityAllows(caps[i], ActionRead) {
+			continue
 		}
+		resp := RuntimeBrokerWithCapabilities{RuntimeBroker: broker}
+		if caps != nil && i < len(caps) {
+			resp.Cap = caps[i]
+		}
+		brokersWithCaps = append(brokersWithCaps, resp)
+	}
+
+	totalCount := result.TotalCount
+	if ident != nil {
+		totalCount = len(brokersWithCaps)
 	}
 
 	writeJSON(w, http.StatusOK, ListRuntimeBrokersWithCapsResponse{
 		Brokers:    brokersWithCaps,
 		NextCursor: result.NextCursor,
-		TotalCount: result.TotalCount,
+		TotalCount: totalCount,
 	})
 }
 
@@ -3889,7 +3929,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 
 	// Compute per-item capabilities (users have no scope-level create action)
 	identity := GetIdentityFromContext(ctx)
-	users := make([]UserWithCapabilities, len(result.Items))
+	users := make([]UserWithCapabilities, 0, len(result.Items))
 	if identity != nil {
 		resources := make([]Resource, len(result.Items))
 		for i := range result.Items {
@@ -3897,18 +3937,26 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		caps := s.authzService.ComputeCapabilitiesBatch(ctx, identity, resources, "user")
 		for i := range result.Items {
-			users[i] = UserWithCapabilities{User: result.Items[i], Cap: caps[i]}
+			if !capabilityAllows(caps[i], ActionRead) {
+				continue
+			}
+			users = append(users, UserWithCapabilities{User: result.Items[i], Cap: caps[i]})
 		}
 	} else {
 		for i := range result.Items {
-			users[i] = UserWithCapabilities{User: result.Items[i]}
+			users = append(users, UserWithCapabilities{User: result.Items[i]})
 		}
+	}
+
+	totalCount := result.TotalCount
+	if identity != nil {
+		totalCount = len(users)
 	}
 
 	writeJSON(w, http.StatusOK, ListUsersResponse{
 		Users:      users,
 		NextCursor: result.NextCursor,
-		TotalCount: result.TotalCount,
+		TotalCount: totalCount,
 	})
 }
 
