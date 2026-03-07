@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -693,6 +694,27 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 	// Setup logging with optional OTel bridge and Cloud Logging handler
 	logging.SetupWithOTel(component, enableDebug, useGCP, logProvider, cloudHandler)
 
+	// Initialize dedicated request logger
+	reqLogCfg := logging.RequestLoggerConfig{
+		FilePath:   os.Getenv(logging.EnvRequestLogPath),
+		Component:  component,
+		UseGCP:     useGCP,
+		Foreground: serverStartForeground,
+		Level:      logging.ResolveLogLevel(enableDebug),
+	}
+	if ch, ok := cloudHandler.(*logging.CloudHandler); ok && ch != nil {
+		reqLogCfg.CloudClient = ch.Client()
+		reqLogCfg.ProjectID = logging.FormatProjectID()
+	}
+	requestLogger, reqLogCleanup, err := logging.NewRequestLogger(reqLogCfg)
+	if err != nil {
+		slog.Warn("Failed to initialize request logger", "error", err)
+		requestLogger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	}
+	if reqLogCleanup != nil {
+		defer reqLogCleanup()
+	}
+
 	// Load configuration
 	cfg, err := config.LoadGlobalConfig(serverConfigPath)
 	if err != nil {
@@ -1118,6 +1140,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 
 		// Create Hub server
 		hubSrv = hub.New(hubCfg, s)
+		hubSrv.SetRequestLogger(requestLogger)
 
 		// Initialize storage if configured
 		if storageBucket != "" {
@@ -1260,6 +1283,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			MaintenanceMessage: maintenanceMessage,
 		}
 		webSrv = hub.NewWebServer(webCfg)
+		webSrv.SetRequestLogger(requestLogger)
 
 		// Create shared event publisher for real-time SSE
 		eventPub := hub.NewChannelEventPublisher()
@@ -1499,6 +1523,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 
 		// Create Runtime Broker server
 		rhSrv := runtimebroker.New(rhCfg, mgr, rt)
+		rhSrv.SetRequestLogger(requestLogger)
 
 		// Register Broker health provider for composite web /healthz
 		if webSrv != nil {

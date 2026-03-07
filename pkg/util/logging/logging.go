@@ -69,10 +69,32 @@ func WithMetadata(ctx context.Context, attrs ...slog.Attr) context.Context {
 	return ctx
 }
 
-// Logger returns a logger with contextual metadata from the context.
-// Currently it just returns the default logger.
+// Logger returns a logger enriched with request-scoped metadata from the context.
+// When called within an HTTP handler wrapped by RequestLogMiddleware, the returned
+// logger automatically includes request_id, trace_id, grove_id, and agent_id.
 func Logger(ctx context.Context) *slog.Logger {
-	return slog.Default()
+	l := slog.Default()
+	if meta := RequestMetaFromContext(ctx); meta != nil {
+		meta.mu.Lock()
+		var attrs []any
+		if meta.RequestID != "" {
+			attrs = append(attrs, slog.String(AttrRequestID, meta.RequestID))
+		}
+		if meta.TraceID != "" {
+			attrs = append(attrs, slog.String(AttrTraceID, meta.TraceID))
+		}
+		if meta.GroveID != "" {
+			attrs = append(attrs, slog.String(AttrGroveID, meta.GroveID))
+		}
+		if meta.AgentID != "" {
+			attrs = append(attrs, slog.String(AttrAgentID, meta.AgentID))
+		}
+		meta.mu.Unlock()
+		if len(attrs) > 0 {
+			l = l.With(attrs...)
+		}
+	}
+	return l
 }
 
 // Subsystem returns a child logger with the given subsystem attribute.

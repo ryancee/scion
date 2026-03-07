@@ -185,6 +185,24 @@ func (h *CloudHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
+// Client returns the underlying Cloud Logging client.
+// This allows reuse of the same client connection for multiple loggers.
+func (h *CloudHandler) Client() *gcplog.Client {
+	return h.client
+}
+
+// NewCloudHandlerFromClient creates a CloudHandler from an existing client.
+// This avoids opening a second connection for the request log stream.
+func NewCloudHandlerFromClient(client *gcplog.Client, logID, component string, level slog.Level) *CloudHandler {
+	logger := client.Logger(logID)
+	return &CloudHandler{
+		logger:    logger,
+		client:    client,
+		level:     level,
+		component: component,
+	}
+}
+
 // slogLevelToSeverity maps slog.Level to Cloud Logging severity.
 func slogLevelToSeverity(level slog.Level) gcplog.Severity {
 	switch {

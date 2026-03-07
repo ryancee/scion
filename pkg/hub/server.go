@@ -383,6 +383,9 @@ type Server struct {
 	scheduler                 *Scheduler          // Unified scheduler for recurring tasks
 	cleanupOnce               sync.Once           // Ensures CleanupResources runs only once
 
+	// Dedicated request logger (nil = disabled)
+	requestLogger *slog.Logger
+
 	// Subsystem loggers for handler methods
 	agentLifecycleLog *slog.Logger
 	messageLog        *slog.Logger
@@ -650,6 +653,13 @@ func (s *Server) SetStorage(stor storage.Storage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.storage = stor
+}
+
+// SetRequestLogger sets the dedicated request logger.
+func (s *Server) SetRequestLogger(l *slog.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requestLogger = l
 }
 
 // GetStorage returns the current storage backend.
@@ -1220,7 +1230,11 @@ func (s *Server) registerRoutes() {
 func (s *Server) applyMiddleware(h http.Handler) http.Handler {
 	// Apply middleware in reverse order (last applied runs first)
 	h = s.recoveryMiddleware(h)
-	h = s.loggingMiddleware(h)
+	if s.requestLogger != nil {
+		h = logging.RequestLogMiddleware(s.requestLogger, "hub", logging.HubPathPatterns())(h)
+	} else {
+		h = s.loggingMiddleware(h)
+	}
 
 	// Apply broker auth middleware (checks X-Scion-Broker-ID header for HMAC auth)
 	// This runs after unified auth but before the handler, allowing hosts to authenticate

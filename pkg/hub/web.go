@@ -33,6 +33,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/ptone/scion-agent/pkg/apiclient"
 	"github.com/ptone/scion-agent/pkg/store"
+	"github.com/ptone/scion-agent/pkg/util/logging"
 	"github.com/ptone/scion-agent/pkg/version"
 	"github.com/ptone/scion-agent/web"
 )
@@ -147,6 +148,9 @@ type WebServer struct {
 	hubShutdown  func(context.Context) error // Hub resource cleanup, or nil
 	maintenance  *MaintenanceState     // runtime maintenance mode state (shared with Hub)
 	startTime    time.Time
+
+	// Dedicated request logger (nil = disabled)
+	requestLogger *slog.Logger
 
 	// Health providers for composite health response (combo mode)
 	hubHealthProvider    HealthProvider
@@ -434,6 +438,11 @@ func (ws *WebServer) SetUserTokenService(svc *UserTokenService) {
 // SetEventPublisher sets the event publisher for real-time SSE streaming.
 func (ws *WebServer) SetEventPublisher(pub *ChannelEventPublisher) {
 	ws.events = pub
+}
+
+// SetRequestLogger sets the dedicated request logger.
+func (ws *WebServer) SetRequestLogger(l *slog.Logger) {
+	ws.requestLogger = l
 }
 
 // SetHubHealthProvider registers a health provider for the Hub component.
@@ -1431,7 +1440,11 @@ func (ws *WebServer) buildHandler() http.Handler {
 	handler = ws.securityHeadersMiddleware(handler)
 
 	// Request logging (outermost)
-	handler = ws.loggingMiddleware(handler)
+	if ws.requestLogger != nil {
+		handler = logging.RequestLogMiddleware(ws.requestLogger, "web", nil)(handler)
+	} else {
+		handler = ws.loggingMiddleware(handler)
+	}
 
 	return handler
 }

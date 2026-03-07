@@ -187,6 +187,9 @@ type Server struct {
 
 	stateDir string
 
+	// Dedicated request logger (nil = disabled)
+	requestLogger *slog.Logger
+
 	// Subsystem loggers for handler methods
 	agentLifecycleLog *slog.Logger
 	messageLog        *slog.Logger
@@ -622,6 +625,13 @@ func (s *Server) validateBrokerAuthStartup() error {
 	}
 
 	return nil
+}
+
+// SetRequestLogger sets the dedicated request logger.
+func (s *Server) SetRequestLogger(l *slog.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requestLogger = l
 }
 
 // SetHubClient sets the Hub client for template hydration.
@@ -1109,7 +1119,11 @@ func (s *Server) registerRoutes() {
 func (s *Server) applyMiddleware(h http.Handler) http.Handler {
 	// Apply middleware in reverse order (last applied runs first)
 	h = s.recoveryMiddleware(h)
-	h = s.loggingMiddleware(h)
+	if s.requestLogger != nil {
+		h = logging.RequestLogMiddleware(s.requestLogger, "broker", logging.BrokerPathPatterns())(h)
+	} else {
+		h = s.loggingMiddleware(h)
+	}
 	if s.config.CORSEnabled {
 		h = s.corsMiddleware(h)
 	}
