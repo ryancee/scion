@@ -28,8 +28,8 @@ core-base  (Go, Git, Node, Python, gcloud — rarely changes)
 |----------|---------|-------|
 | `pkg/harness/claude/embeds/config.yaml` | `image: us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-claude:latest` | 4 files (one per harness) |
 | `image-build/cloudbuild*.yaml` | `$_REGISTRY` substitution variable | 5 files |
-| `image-build/scripts/trigger-cloudbuild.sh` | `PROJECT=ptone-misc` | 1 file (currently `hack/trigger-cloudbuild.sh`) |
-| `image-build/scripts/pull-containers.sh` | Hardcoded image list | 1 file (currently `hack/pull-containers.sh`) |
+| `image-build/scripts/trigger-cloudbuild.sh` | `--project` / `--registry` flags | 1 file |
+| `image-build/scripts/pull-containers.sh` | `--registry` flag | 1 file |
 
 ### Image Resolution at Runtime
 The image used for an agent is resolved through a precedence chain:
@@ -221,21 +221,22 @@ This writes to `~/.scion/settings.yaml` (global) or `.scion/settings.yaml` (grov
    - Unit tests for `RewriteImageRegistry`.
    - Integration test for image resolution with `image_registry` set.
 
-### Phase 2: Build Scripts
+### Phase 2: Build Scripts ✅ DONE
 
-6. **Create `image-build/scripts/build-images.sh`.**
+6. **Create `image-build/scripts/build-images.sh`.** ✅
    - Unified local build script using `docker buildx`.
    - Parameterized by `--registry`, `--target`, `--push`, `--platform`, `--tag`.
 
-7. **Move and update `hack/trigger-cloudbuild.sh` → `image-build/scripts/trigger-cloudbuild.sh`.**
+7. **Move and update `hack/trigger-cloudbuild.sh` → `image-build/scripts/trigger-cloudbuild.sh`.** ✅
    - Accept `--project` and `--registry` flags.
    - Default to environment/gcloud for project.
 
-7b. **Move `hack/pull-containers.sh` → `image-build/scripts/pull-containers.sh`.**
+7b. **Move `hack/pull-containers.sh` → `image-build/scripts/pull-containers.sh`.** ✅
    - Consolidates all image-related scripts in one place.
+   - Parameterized with `--registry` and `--tag` flags.
 
-8. **Create `image-build/scripts/setup-cloud-build.sh`.**
-   - One-time GCP Artifact Registry setup.
+8. **Create `image-build/scripts/setup-cloud-build.sh`.** ✅
+   - One-time GCP Artifact Registry setup (APIs, repo, IAM).
 
 ### Phase 3: GitHub Actions
 
