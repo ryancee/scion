@@ -1,7 +1,7 @@
 # Agent Log Viewer
 
 ## Status
-**Proposed** — 2026-03-07
+**In Progress** — Phase 1 complete (2026-03-07)
 
 ## Overview
 
@@ -452,16 +452,27 @@ known scion fields like `agent_id`, `grove_id`).
 
 ### 6. Implementation Plan
 
-#### Phase 1 — Hub API + CLI (Backend)
-1. Add `logadmin` client initialization to hub `Server` (gated on project ID availability)
-2. Implement `LogQueryService` with `Query()` and `Tail()` methods
-3. Add `GET /api/v1/agents/{id}/logs` handler
-4. Add `GET /api/v1/agents/{id}/logs/stream` SSE handler with server-side polling loop
-5. Extend `hubclient.AgentService` with `GetCloudLogs()` and `StreamCloudLogs()`
-6. Update `cmd/logs.go` to call hub API when hub is available
-7. Add flags: `--tail`, `--since`, `--severity`, `--json`, `--follow`
-8. Implement `--follow` via SSE stream consumption with auto-reconnect
-9. Tests for filter construction, response mapping, CLI output, streaming
+#### Phase 1 — Hub API + CLI (Backend) ✅ Complete
+1. ✅ Add `logadmin` client initialization to hub `Server` (gated on project ID availability)
+2. ✅ Implement `LogQueryService` with `Query()` method (`pkg/hub/logquery.go`)
+3. ✅ Add `GET /api/v1/agents/{id}/cloud-logs` handler (`pkg/hub/handlers_logs.go`)
+4. ✅ Add `GET /api/v1/agents/{id}/cloud-logs/stream` SSE handler with server-side polling loop
+5. ✅ Extend `hubclient.AgentService` with `GetCloudLogs()` and `StreamCloudLogs()`
+6. ✅ Update `cmd/logs.go` to call hub API when hub is available
+7. ✅ Add flags: `--tail`, `--since`, `--severity`, `--json`, `--follow`
+8. ✅ Implement `--follow` via SSE stream consumption
+9. ✅ Tests for filter construction, entry conversion, handler routing, CLI flag parsing
+
+**Implementation notes:**
+- Endpoint paths use `/cloud-logs` (not `/logs`) to avoid conflicting with any
+  existing broker-proxied log endpoint.
+- Both `/api/v1/agents/{id}/cloud-logs` and grove-scoped
+  `/api/v1/groves/{groveId}/agents/{agentId}/cloud-logs` routes are supported.
+- The streaming backend uses a 3-second polling loop (not the Tail API) as
+  decided in §5.3. The SSE contract is identical either way.
+- `LogQueryService` is initialized in `server.go:New()` using `ResolveProjectID()`
+  from the logging package. When no GCP project is available, the service stays
+  nil and endpoints return 501.
 
 #### Phase 2 — Web Logs Tab (Frontend)
 1. Add capability flag from hub indicating Cloud Logging availability
