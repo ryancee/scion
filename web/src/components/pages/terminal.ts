@@ -67,6 +67,9 @@ export class ScionPageTerminal extends LitElement {
   @state()
   private loading = true;
 
+  @state()
+  private mouseEnabled = false;
+
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private clipboardAddon: ClipboardAddon | null = null;
@@ -161,6 +164,32 @@ export class ScionPageTerminal extends LitElement {
     .reconnect-btn:hover {
       border-color: #60a5fa;
       color: #60a5fa;
+    }
+
+    .mouse-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid #2a2a2a;
+      color: #94a3b8;
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      line-height: 1;
+      position: relative;
+    }
+
+    .mouse-toggle:hover {
+      border-color: #60a5fa;
+      color: #60a5fa;
+    }
+
+    .mouse-toggle.active {
+      border-color: #22c55e;
+      color: #22c55e;
     }
 
     .terminal-container {
@@ -527,6 +556,14 @@ export class ScionPageTerminal extends LitElement {
     this.clipboardAddon = null;
   }
 
+  private toggleMouse(): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    // Send tmux prefix (Ctrl-B) + 'm' to trigger the togglemouse binding
+    this.sendData('\x02m');
+    this.mouseEnabled = !this.mouseEnabled;
+    this.terminal?.focus();
+  }
+
   private handleReconnect(): void {
     this.cleanup();
     void this.loadAgentInfo();
@@ -576,6 +613,12 @@ export class ScionPageTerminal extends LitElement {
         <div class="separator"></div>
         <span class="agent-name">${this.agentName || this.agentId}</span>
         <div class="spacer"></div>
+        <button
+          class="mouse-toggle ${this.mouseEnabled ? 'active' : ''}"
+          title="Toggle mouse mode (Ctrl-B m)"
+          @click=${() => this.toggleMouse()}
+          ?disabled=${!this.connected}
+        ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 0 L4 18 L9 13 L15 20 L18 17 L12 10 L18 10 Z"/></svg></button>
         <div class="status-indicator">
           <span class="status-dot ${this.connected ? 'connected' : ''}"></span>
           ${this.connected ? 'Connected' : 'Disconnected'}
