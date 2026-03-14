@@ -238,3 +238,81 @@ func TestHarnessRPC_MetadataCaching(t *testing.T) {
 	assert.Equal(t, "test-harness", name1)
 	assert.NotNil(t, client.metadata, "metadata should be cached after first call")
 }
+
+// mockHarnessWithCapabilities extends mockHarness with optional interfaces.
+type mockHarnessWithCapabilities struct {
+	mockHarness
+	appliedAuthHome      string
+	appliedTelemetryHome string
+}
+
+func (m *mockHarnessWithCapabilities) ApplyAuthSettings(agentHome string, resolved *api.ResolvedAuth) error {
+	m.appliedAuthHome = agentHome
+	return nil
+}
+
+func (m *mockHarnessWithCapabilities) ApplyTelemetrySettings(agentHome string, telemetry *api.TelemetryConfig, env map[string]string) error {
+	m.appliedTelemetryHome = agentHome
+	return nil
+}
+
+func TestHarnessRPC_ApplyAuthSettings_WithCapability(t *testing.T) {
+	mock := &mockHarnessWithCapabilities{mockHarness: mockHarness{name: "capable-harness"}}
+	client := startTestHarnessRPCServer(t, mock)
+
+	err := client.ApplyAuthSettings("/home/agent1", &api.ResolvedAuth{
+		Method:  "passthrough",
+		EnvVars: map[string]string{"KEY": "val"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/home/agent1", mock.appliedAuthHome)
+}
+
+func TestHarnessRPC_ApplyTelemetrySettings_WithCapability(t *testing.T) {
+	mock := &mockHarnessWithCapabilities{mockHarness: mockHarness{name: "capable-harness"}}
+	client := startTestHarnessRPCServer(t, mock)
+
+	enabled := true
+	err := client.ApplyTelemetrySettings("/home/agent1", &api.TelemetryConfig{Enabled: &enabled}, map[string]string{"FOO": "bar"})
+	require.NoError(t, err)
+	assert.Equal(t, "/home/agent1", mock.appliedTelemetryHome)
+}
+
+func TestHarnessRPC_ApplyAuthSettings_WithoutCapability(t *testing.T) {
+	// mockHarness does NOT implement AuthSettingsApplier
+	mock := &mockHarness{name: "basic-harness"}
+	client := startTestHarnessRPCServer(t, mock)
+
+	// Should silently succeed (no-op) when capability is not supported
+	err := client.ApplyAuthSettings("/home/agent1", &api.ResolvedAuth{Method: "passthrough"})
+	require.NoError(t, err)
+}
+
+func TestHarnessRPC_ApplyTelemetrySettings_WithoutCapability(t *testing.T) {
+	// mockHarness does NOT implement TelemetrySettingsApplier
+	mock := &mockHarness{name: "basic-harness"}
+	client := startTestHarnessRPCServer(t, mock)
+
+	enabled := true
+	err := client.ApplyTelemetrySettings("/home/agent1", &api.TelemetryConfig{Enabled: &enabled}, nil)
+	require.NoError(t, err)
+}
+
+func TestHarnessRPC_Capabilities_Advertised(t *testing.T) {
+	mock := &mockHarnessWithCapabilities{mockHarness: mockHarness{name: "capable-harness"}}
+	client := startTestHarnessRPCServer(t, mock)
+
+	meta, err := client.getMetadata()
+	require.NoError(t, err)
+	assert.Contains(t, meta.Capabilities, "auth_settings")
+	assert.Contains(t, meta.Capabilities, "telemetry_settings")
+}
+
+func TestHarnessRPC_Capabilities_NotAdvertised(t *testing.T) {
+	mock := &mockHarness{name: "basic-harness"}
+	client := startTestHarnessRPCServer(t, mock)
+
+	meta, err := client.getMetadata()
+	require.NoError(t, err)
+	assert.Empty(t, meta.Capabilities)
+}

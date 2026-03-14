@@ -246,20 +246,21 @@ Scion uses go-plugin's protocol version negotiation with **strict matching**:
 
 ## Phased Implementation Plan
 
-### Phase 1: Plugin Infrastructure
+### Phase 1: Plugin Infrastructure ✓
 - `pkg/plugin/` package with Manager, Registry, Discovery
 - `net/rpc` interface definitions for broker and harness plugin types
 - Settings schema additions for `plugins` section
 - Integration with hub/broker server lifecycle (start/stop/restart)
 
-### Phase 2: Message Broker Plugins
+### Phase 2: Message Broker Plugins ✓
 - See [broker-plugins.md](broker-plugins.md) for detailed broker plugin implementation plan
 
-### Phase 3: Harness Plugins
-- `net/rpc` interface definitions for harness plugin
-- Refactor `GetHarnessEmbedsFS()` to be nil-safe for plugin harnesses
-- Integration with harness factory and local mode
-- Example harness plugin
+### Phase 3: Harness Plugins ✓
+- `net/rpc` interface definitions for harness plugin (`pkg/plugin/harness_plugin.go`)
+- `GetHarnessEmbedsFS()` returns empty `embed.FS` for plugin harnesses; callers are nil-safe
+- Integration with harness factory (`pkg/harness/harness.go`) and local mode
+- Reference harness plugin (`pkg/plugin/refharness/`) with full RPC integration tests
+- Optional capability tests for `AuthSettingsApplier` and `TelemetrySettingsApplier`
 
 ### Phase 4: Polish
 - `scion plugin list` command showing discovered/loaded plugins

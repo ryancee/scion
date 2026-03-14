@@ -217,6 +217,12 @@ type HarnessRPCClient struct {
 	metadata *HarnessMetadata // cached after first call
 }
 
+// NewHarnessRPCClient creates a HarnessRPCClient wrapping the given RPC client.
+// This is primarily used by integration tests that set up their own RPC server.
+func NewHarnessRPCClient(client *rpc.Client) *HarnessRPCClient {
+	return &HarnessRPCClient{client: client}
+}
+
 func (c *HarnessRPCClient) getMetadata() (*HarnessMetadata, error) {
 	if c.metadata != nil {
 		return c.metadata, nil
