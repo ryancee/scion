@@ -449,6 +449,56 @@ func (s *GroupStore) RemoveGroupMember(ctx context.Context, groupID, memberType,
 	return nil
 }
 
+// UpdateGroupMemberRole updates the role of an existing group member.
+func (s *GroupStore) UpdateGroupMemberRole(ctx context.Context, groupID, memberType, memberID, newRole string) error {
+	groupUID, err := parseUUID(groupID)
+	if err != nil {
+		return err
+	}
+
+	memberUID, err := parseUUID(memberID)
+	if err != nil {
+		return err
+	}
+
+	switch memberType {
+	case store.GroupMemberTypeUser:
+		count, err := s.client.GroupMembership.Update().
+			Where(
+				groupmembership.GroupIDEQ(groupUID),
+				groupmembership.UserIDEQ(memberUID),
+			).
+			SetRole(groupmembership.Role(newRole)).
+			Save(ctx)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return store.ErrNotFound
+		}
+
+	case store.GroupMemberTypeAgent:
+		count, err := s.client.GroupMembership.Update().
+			Where(
+				groupmembership.GroupIDEQ(groupUID),
+				groupmembership.AgentIDEQ(memberUID),
+			).
+			SetRole(groupmembership.Role(newRole)).
+			Save(ctx)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return store.ErrNotFound
+		}
+
+	default:
+		return fmt.Errorf("%w: unsupported member type %q for role update", store.ErrInvalidInput, memberType)
+	}
+
+	return nil
+}
+
 // GetGroupMembers returns all members of a group.
 // For grove_agents groups, membership is resolved at query time by finding
 // all agents that belong to the same grove.

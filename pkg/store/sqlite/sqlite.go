@@ -3608,6 +3608,21 @@ func (s *SQLiteStore) AddGroupMember(ctx context.Context, member *store.GroupMem
 	return nil
 }
 
+func (s *SQLiteStore) UpdateGroupMemberRole(ctx context.Context, groupID, memberType, memberID, newRole string) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE group_members SET role = ? WHERE group_id = ? AND member_type = ? AND member_id = ?`,
+		newRole, groupID, memberType, memberID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) RemoveGroupMember(ctx context.Context, groupID, memberType, memberID string) error {
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM group_members WHERE group_id = ? AND member_type = ? AND member_id = ?",

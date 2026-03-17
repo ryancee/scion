@@ -500,6 +500,10 @@ type GroupStore interface {
 	// Returns ErrNotFound if the membership doesn't exist.
 	RemoveGroupMember(ctx context.Context, groupID, memberType, memberID string) error
 
+	// UpdateGroupMemberRole updates the role of an existing group member.
+	// Returns ErrNotFound if the membership doesn't exist.
+	UpdateGroupMemberRole(ctx context.Context, groupID, memberType, memberID, newRole string) error
+
 	// GetGroupMembers returns all members of a group.
 	GetGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
 

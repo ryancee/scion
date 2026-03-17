@@ -2297,6 +2297,24 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 		}
 	}
 
+	// Backfill: if the group has exactly one member and no owners, promote
+	// that member to owner. This handles groves created before ownership
+	// enforcement was added, where the creator was added as "member".
+	ownerCount, err := s.store.CountGroupMembersByRole(ctx, membersGroup.ID, store.GroupMemberRoleOwner)
+	if err == nil && ownerCount == 0 {
+		members, err := s.store.GetGroupMembers(ctx, membersGroup.ID)
+		if err == nil && len(members) == 1 && members[0].MemberType == store.GroupMemberTypeUser {
+			if promoteErr := s.store.UpdateGroupMemberRole(ctx, membersGroup.ID,
+				members[0].MemberType, members[0].MemberID, store.GroupMemberRoleOwner); promoteErr != nil {
+				slog.Warn("failed to promote sole member to owner",
+					"grove", grove.ID, "group", membersGroup.ID, "user", members[0].MemberID, "error", promoteErr)
+			} else {
+				slog.Info("promoted sole grove member to owner",
+					"grove", grove.ID, "group", membersGroup.ID, "user", members[0].MemberID)
+			}
+		}
+	}
+
 	// Create grove-level policy for member agent creation
 	policyName := "grove:" + grove.Slug + ":member-create-agents"
 	policy := &store.Policy{

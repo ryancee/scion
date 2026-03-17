@@ -231,6 +231,10 @@ func (c *CompositeStore) ensureEntGrove(ctx context.Context, groveID string) err
 	return nil
 }
 
+func (c *CompositeStore) UpdateGroupMemberRole(ctx context.Context, groupID, memberType, memberID, newRole string) error {
+	return c.groups.UpdateGroupMemberRole(ctx, groupID, memberType, memberID, newRole)
+}
+
 func (c *CompositeStore) RemoveGroupMember(ctx context.Context, groupID, memberType, memberID string) error {
 	return c.groups.RemoveGroupMember(ctx, groupID, memberType, memberID)
 }

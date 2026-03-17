@@ -1298,6 +1298,81 @@ func TestGetGroupsByIDs_MissingIDs(t *testing.T) {
 	assert.Equal(t, "Exists", groups[0].Name)
 }
 
+func TestUpdateGroupMemberRole(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Role Update",
+		Slug: "role-update",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+
+	// Add a user as member
+	require.NoError(t, gs.AddGroupMember(ctx, &store.GroupMember{
+		GroupID:    g.ID,
+		MemberType: store.GroupMemberTypeUser,
+		MemberID:   testUserUID.String(),
+		Role:       store.GroupMemberRoleMember,
+	}))
+
+	// Verify initial role
+	m, err := gs.GetGroupMembership(ctx, g.ID, store.GroupMemberTypeUser, testUserUID.String())
+	require.NoError(t, err)
+	assert.Equal(t, store.GroupMemberRoleMember, m.Role)
+
+	// Promote to owner
+	err = gs.UpdateGroupMemberRole(ctx, g.ID, store.GroupMemberTypeUser, testUserUID.String(), store.GroupMemberRoleOwner)
+	require.NoError(t, err)
+
+	// Verify updated role
+	m, err = gs.GetGroupMembership(ctx, g.ID, store.GroupMemberTypeUser, testUserUID.String())
+	require.NoError(t, err)
+	assert.Equal(t, store.GroupMemberRoleOwner, m.Role)
+}
+
+func TestUpdateGroupMemberRoleNotFound(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Role NF",
+		Slug: "role-nf",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+
+	err := gs.UpdateGroupMemberRole(ctx, g.ID, store.GroupMemberTypeUser, testUserUID.String(), store.GroupMemberRoleOwner)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestUpdateGroupMemberRoleAgent(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Agent Role",
+		Slug: "agent-role-update",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+
+	require.NoError(t, gs.AddGroupMember(ctx, &store.GroupMember{
+		GroupID:    g.ID,
+		MemberType: store.GroupMemberTypeAgent,
+		MemberID:   testAgentUID.String(),
+		Role:       store.GroupMemberRoleMember,
+	}))
+
+	err := gs.UpdateGroupMemberRole(ctx, g.ID, store.GroupMemberTypeAgent, testAgentUID.String(), store.GroupMemberRoleAdmin)
+	require.NoError(t, err)
+
+	m, err := gs.GetGroupMembership(ctx, g.ID, store.GroupMemberTypeAgent, testAgentUID.String())
+	require.NoError(t, err)
+	assert.Equal(t, store.GroupMemberRoleAdmin, m.Role)
+}
+
 func TestCountGroupMembersByRole(t *testing.T) {
 	gs := newTestGroupStore(t)
 	ctx := context.Background()
