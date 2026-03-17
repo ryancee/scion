@@ -2954,6 +2954,12 @@ func (s *Server) handleGroveRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for nested /settings path
+	if subPath == "settings" {
+		s.handleGroveSettings(w, r, groveID)
+		return
+	}
+
 	// Check for nested /sync-templates path
 	if subPath == "sync-templates" {
 		s.handleGroveSyncTemplates(w, r, groveID)

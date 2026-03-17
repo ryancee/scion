@@ -116,12 +116,14 @@ type GroveProvider struct {
 
 // GroveSettings represents grove configuration settings.
 type GroveSettings struct {
-	ActiveProfile   string                 `json:"activeProfile,omitempty"`
-	DefaultTemplate string                 `json:"defaultTemplate,omitempty"`
-	Bucket          *BucketConfig          `json:"bucket,omitempty"`
-	Runtimes        map[string]interface{} `json:"runtimes,omitempty"`
-	Harnesses       map[string]interface{} `json:"harnesses,omitempty"`
-	Profiles        map[string]interface{} `json:"profiles,omitempty"`
+	ActiveProfile        string                 `json:"activeProfile,omitempty"`
+	DefaultTemplate      string                 `json:"defaultTemplate,omitempty"`
+	DefaultHarnessConfig string                 `json:"defaultHarnessConfig,omitempty"`
+	TelemetryEnabled     *bool                  `json:"telemetryEnabled,omitempty"`
+	Bucket               *BucketConfig          `json:"bucket,omitempty"`
+	Runtimes             map[string]interface{} `json:"runtimes,omitempty"`
+	Harnesses            map[string]interface{} `json:"harnesses,omitempty"`
+	Profiles             map[string]interface{} `json:"profiles,omitempty"`
 }
 
 // BucketConfig represents cloud storage configuration.

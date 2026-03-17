@@ -37,6 +37,22 @@ interface Agent {
   activity?: string;
 }
 
+interface GroveSettings {
+  defaultTemplate?: string | undefined;
+  defaultHarnessConfig?: string | undefined;
+  telemetryEnabled?: boolean | null | undefined;
+  activeProfile?: string | undefined;
+}
+
+interface HarnessConfigEntry {
+  id: string;
+  name: string;
+  slug: string;
+  displayName?: string;
+  harness: string;
+  scope: string;
+}
+
 @customElement('scion-page-grove-settings')
 export class ScionPageGroveSettings extends LitElement {
   @property({ type: Object })
@@ -77,6 +93,33 @@ export class ScionPageGroveSettings extends LitElement {
 
   @state()
   private membersGroup: AdminGroup | null = null;
+
+  @state()
+  private settings: GroveSettings = {};
+
+  @state()
+  private settingsLoading = true;
+
+  @state()
+  private settingsSaving = false;
+
+  @state()
+  private settingsError: string | null = null;
+
+  @state()
+  private settingsSuccess: string | null = null;
+
+  @state()
+  private harnessConfigs: HarnessConfigEntry[] = [];
+
+  @state()
+  private configDefaultTemplate = '';
+
+  @state()
+  private configDefaultHarnessConfig = '';
+
+  @state()
+  private configTelemetryEnabled: boolean | null = null;
 
   private syncAgentId: string | null = null;
   private syncPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -293,7 +336,7 @@ export class ScionPageGroveSettings extends LitElement {
       user-select: none;
     }
 
-    .checkbox-label input[type="checkbox"] {
+    .checkbox-label input[type='checkbox'] {
       cursor: pointer;
     }
 
@@ -347,6 +390,49 @@ export class ScionPageGroveSettings extends LitElement {
       margin-bottom: 1rem;
     }
 
+    .config-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .config-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .config-field label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--scion-text, #1e293b);
+    }
+
+    .config-field .field-help {
+      font-size: 0.75rem;
+      color: var(--scion-text-muted, #64748b);
+    }
+
+    .config-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      justify-content: flex-end;
+      padding-top: 0.5rem;
+    }
+
+    .config-status {
+      font-size: 0.8125rem;
+    }
+
+    .config-status.error {
+      color: var(--sl-color-danger-600, #dc2626);
+    }
+
+    .config-status.success {
+      color: var(--sl-color-success-600, #16a34a);
+    }
+
     .done-footer {
       display: flex;
       justify-content: flex-start;
@@ -364,6 +450,8 @@ export class ScionPageGroveSettings extends LitElement {
     }
     void this.loadGrove().then(() => this.loadMembersGroup());
     void this.loadTemplates();
+    void this.loadSettings();
+    void this.loadHarnessConfigs();
   }
 
   override disconnectedCallback(): void {
@@ -380,9 +468,7 @@ export class ScionPageGroveSettings extends LitElement {
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(
-          errorData.message || `HTTP ${response.status}: ${response.statusText}`
-        );
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
       this.grove = (await response.json()) as Grove;
@@ -424,7 +510,11 @@ export class ScionPageGroveSettings extends LitElement {
       if (response.ok) {
         const data = (await response.json()) as { groups?: AdminGroup[] } | AdminGroup[];
         const groups = Array.isArray(data) ? data : data.groups || [];
-        console.debug('[grove-settings] groups for grove:', groups.length, groups.map((g) => g.slug));
+        console.debug(
+          '[grove-settings] groups for grove:',
+          groups.length,
+          groups.map((g) => g.slug)
+        );
         // Find the members group (slug pattern: grove:<slug>:members)
         this.membersGroup = groups.find((g) => g.slug?.endsWith(':members')) || null;
         if (!this.membersGroup) {
@@ -435,6 +525,68 @@ export class ScionPageGroveSettings extends LitElement {
       }
     } catch (err) {
       console.error('[grove-settings] Failed to load grove members group:', err);
+    }
+  }
+
+  private async loadSettings(): Promise<void> {
+    this.settingsLoading = true;
+    try {
+      const response = await apiFetch(`/api/v1/groves/${this.groveId}/settings`);
+      if (response.ok) {
+        this.settings = (await response.json()) as GroveSettings;
+        this.configDefaultTemplate = this.settings.defaultTemplate || '';
+        this.configDefaultHarnessConfig = this.settings.defaultHarnessConfig || '';
+        this.configTelemetryEnabled = this.settings.telemetryEnabled ?? null;
+      }
+    } catch (err) {
+      console.error('Failed to load grove settings:', err);
+    } finally {
+      this.settingsLoading = false;
+    }
+  }
+
+  private async loadHarnessConfigs(): Promise<void> {
+    try {
+      const response = await apiFetch('/api/v1/harness-configs?status=active&limit=100');
+      if (response.ok) {
+        const data = (await response.json()) as { harnessConfigs?: HarnessConfigEntry[] };
+        this.harnessConfigs = data.harnessConfigs || [];
+      }
+    } catch (err) {
+      console.error('Failed to load harness configs:', err);
+    }
+  }
+
+  private async handleSaveConfig(): Promise<void> {
+    this.settingsSaving = true;
+    this.settingsError = null;
+    this.settingsSuccess = null;
+
+    try {
+      const body: GroveSettings = {
+        defaultTemplate: this.configDefaultTemplate || undefined,
+        defaultHarnessConfig: this.configDefaultHarnessConfig || undefined,
+        telemetryEnabled: this.configTelemetryEnabled,
+      };
+
+      const response = await apiFetch(`/api/v1/groves/${this.groveId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(errorData.message || `Failed to save: HTTP ${response.status}`);
+      }
+
+      this.settings = (await response.json()) as GroveSettings;
+      this.settingsSuccess = 'Configuration saved.';
+    } catch (err) {
+      console.error('Failed to save grove settings:', err);
+      this.settingsError = err instanceof Error ? err.message : 'Failed to save settings';
+    } finally {
+      this.settingsSaving = false;
     }
   }
 
@@ -450,7 +602,9 @@ export class ScionPageGroveSettings extends LitElement {
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(errorData.message || `Failed to start template sync: HTTP ${response.status}`);
+        throw new Error(
+          errorData.message || `Failed to start template sync: HTTP ${response.status}`
+        );
       }
 
       const data = (await response.json()) as { agentId: string; status: string };
@@ -525,7 +679,12 @@ export class ScionPageGroveSettings extends LitElement {
       ? '\n\nThis will also delete all agents in this grove.'
       : '';
 
-    if (!event?.altKey && !confirm(`Are you sure you want to delete "${groveName}"?${agentWarning}\n\nThis action cannot be undone.`)) {
+    if (
+      !event?.altKey &&
+      !confirm(
+        `Are you sure you want to delete "${groveName}"?${agentWarning}\n\nThis action cannot be undone.`
+      )
+    ) {
       return;
     }
 
@@ -573,8 +732,7 @@ export class ScionPageGroveSettings extends LitElement {
         <h1>${this.grove.name} Settings</h1>
       </div>
 
-      ${this.renderTemplatesSection()}
-
+      ${this.renderConfigSection()} ${this.renderTemplatesSection()}
       ${this.membersGroup
         ? html`
             <scion-group-member-editor
@@ -586,80 +744,181 @@ export class ScionPageGroveSettings extends LitElement {
             ></scion-group-member-editor>
           `
         : ''}
+      ${canAny(this.grove._capabilities, 'update', 'manage')
+        ? html`
+            <scion-env-var-list
+              scope="grove"
+              scopeId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+              compact
+            ></scion-env-var-list>
 
-      ${canAny(this.grove._capabilities, 'update', 'manage') ? html`
-        <scion-env-var-list
-          scope="grove"
-          scopeId=${this.groveId}
-          apiBasePath="/api/v1/groves/${this.groveId}"
-          compact
-        ></scion-env-var-list>
+            <scion-secret-list
+              scope="grove"
+              scopeId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+              compact
+            ></scion-secret-list>
 
-        <scion-secret-list
-          scope="grove"
-          scopeId=${this.groveId}
-          apiBasePath="/api/v1/groves/${this.groveId}"
-          compact
-        ></scion-secret-list>
+            <scion-shared-dir-list
+              groveId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+            ></scion-shared-dir-list>
+          `
+        : ''}
+      ${can(this.grove._capabilities, 'delete')
+        ? html`
+            <div class="section danger-section">
+              <h2>Danger Zone</h2>
+              <p>Irreversible actions that affect this grove and its resources.</p>
 
-        <scion-shared-dir-list
-          groveId=${this.groveId}
-          apiBasePath="/api/v1/groves/${this.groveId}"
-        ></scion-shared-dir-list>
-      ` : ''}
-
-      ${can(this.grove._capabilities, 'delete') ? html`
-        <div class="section danger-section">
-          <h2>Danger Zone</h2>
-          <p>Irreversible actions that affect this grove and its resources.</p>
-
-          <div class="delete-area">
-            <div class="delete-info">
-              <h3>Delete this grove</h3>
-              <p>
-                Permanently remove this grove and its configuration.
-                This action cannot be undone.
-              </p>
+              <div class="delete-area">
+                <div class="delete-info">
+                  <h3>Delete this grove</h3>
+                  <p>
+                    Permanently remove this grove and its configuration. This action cannot be
+                    undone.
+                  </p>
+                </div>
+                <div class="delete-actions">
+                  <label class="checkbox-label">
+                    <input
+                      type="checkbox"
+                      .checked=${this.deleteAlsoAgents}
+                      @change=${(e: Event) => {
+                        this.deleteAlsoAgents = (e.target as HTMLInputElement).checked;
+                      }}
+                    />
+                    Also delete all agents
+                  </label>
+                  <sl-button
+                    variant="danger"
+                    size="small"
+                    ?loading=${this.deleteLoading}
+                    ?disabled=${this.deleteLoading}
+                    @click=${(e: MouseEvent) => this.handleDeleteGrove(e)}
+                  >
+                    <sl-icon slot="prefix" name="trash"></sl-icon>
+                    Delete Grove
+                  </sl-button>
+                </div>
+              </div>
             </div>
-            <div class="delete-actions">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  .checked=${this.deleteAlsoAgents}
-                  @change=${(e: Event) => {
-                    this.deleteAlsoAgents = (e.target as HTMLInputElement).checked;
-                  }}
-                />
-                Also delete all agents
-              </label>
-              <sl-button
-                variant="danger"
-                size="small"
-                ?loading=${this.deleteLoading}
-                ?disabled=${this.deleteLoading}
-                @click=${(e: MouseEvent) => this.handleDeleteGrove(e)}
-              >
-                <sl-icon slot="prefix" name="trash"></sl-icon>
-                Delete Grove
-              </sl-button>
+          `
+        : html`
+            <div class="section">
+              <h2>Permissions</h2>
+              <p>You don't have permission to modify this grove.</p>
             </div>
-          </div>
-        </div>
-      ` : html`
-        <div class="section">
-          <h2>Permissions</h2>
-          <p>You don't have permission to modify this grove.</p>
-        </div>
-      `}
+          `}
 
       <div class="done-footer">
-        <sl-button
-          variant="default"
-          href="/groves/${this.groveId}"
-        >
+        <sl-button variant="default" href="/groves/${this.groveId}">
           <sl-icon slot="prefix" name="arrow-left"></sl-icon>
           Back to ${this.grove.name}
         </sl-button>
+      </div>
+    `;
+  }
+
+  private renderConfigSection() {
+    const canEdit = canAny(this.grove!._capabilities, 'update', 'manage');
+
+    if (this.settingsLoading) {
+      return html`
+        <div class="section">
+          <h2>Configuration</h2>
+          <p>Grove-level defaults for agent creation.</p>
+          <div style="text-align: center; padding: 1rem;"><sl-spinner></sl-spinner></div>
+        </div>
+      `;
+    }
+
+    return html`
+      <div class="section">
+        <h2>Configuration</h2>
+        <p>Grove-level defaults for agent creation.</p>
+
+        <div class="config-form">
+          <div class="config-field">
+            <label>Default Template</label>
+            <sl-select
+              placeholder="None (use server default)"
+              clearable
+              value=${this.configDefaultTemplate}
+              ?disabled=${!canEdit}
+              @sl-change=${(e: Event) => {
+                this.configDefaultTemplate = (e.target as HTMLSelectElement).value;
+              }}
+            >
+              ${this.templates.map(
+                (t) => html` <sl-option value=${t.name}>${t.displayName || t.name}</sl-option> `
+              )}
+            </sl-select>
+            <span class="field-help"
+              >Template used when creating agents without specifying one.</span
+            >
+          </div>
+
+          <div class="config-field">
+            <label>Default Harness Config</label>
+            <sl-select
+              placeholder="None (use server default)"
+              clearable
+              value=${this.configDefaultHarnessConfig}
+              ?disabled=${!canEdit}
+              @sl-change=${(e: Event) => {
+                this.configDefaultHarnessConfig = (e.target as HTMLSelectElement).value;
+              }}
+            >
+              ${this.harnessConfigs.map(
+                (hc) => html`
+                  <sl-option value=${hc.name}>
+                    ${hc.displayName || hc.name}
+                    ${hc.harness ? html` <small>(${hc.harness})</small>` : ''}
+                  </sl-option>
+                `
+              )}
+            </sl-select>
+            <span class="field-help">Harness configuration used by default for new agents.</span>
+          </div>
+
+          <div class="config-field">
+            <label>Telemetry</label>
+            <sl-switch
+              ?checked=${this.configTelemetryEnabled === true}
+              ?disabled=${!canEdit}
+              @sl-change=${(e: Event) => {
+                this.configTelemetryEnabled = (e.target as HTMLInputElement).checked;
+              }}
+            >
+              ${this.configTelemetryEnabled ? 'Enabled' : 'Disabled'}
+            </sl-switch>
+            <span class="field-help">Enable or disable telemetry for agents in this grove.</span>
+          </div>
+
+          ${canEdit
+            ? html`
+                <div class="config-actions">
+                  ${this.settingsError
+                    ? html`<span class="config-status error">${this.settingsError}</span>`
+                    : ''}
+                  ${this.settingsSuccess
+                    ? html`<span class="config-status success">${this.settingsSuccess}</span>`
+                    : ''}
+                  <sl-button
+                    variant="primary"
+                    size="small"
+                    ?loading=${this.settingsSaving}
+                    ?disabled=${this.settingsSaving}
+                    @click=${() => this.handleSaveConfig()}
+                  >
+                    Save Configuration
+                  </sl-button>
+                </div>
+              `
+            : ''}
+        </div>
       </div>
     `;
   }
@@ -672,41 +931,46 @@ export class ScionPageGroveSettings extends LitElement {
             <h2>Templates</h2>
             <p>Grove-scoped agent templates synced to the Hub.</p>
           </div>
-          ${canAny(this.grove!._capabilities, 'update', 'manage') ? html`
-            <sl-button
-              size="small"
-              variant="default"
-              ?loading=${this.syncLoading}
-              ?disabled=${this.syncLoading}
-              @click=${() => this.handleSyncTemplates()}
-            >
-              <sl-icon slot="prefix" name="arrow-repeat"></sl-icon>
-              Load Templates
-            </sl-button>
-          ` : ''}
+          ${canAny(this.grove!._capabilities, 'update', 'manage')
+            ? html`
+                <sl-button
+                  size="small"
+                  variant="default"
+                  ?loading=${this.syncLoading}
+                  ?disabled=${this.syncLoading}
+                  @click=${() => this.handleSyncTemplates()}
+                >
+                  <sl-icon slot="prefix" name="arrow-repeat"></sl-icon>
+                  Load Templates
+                </sl-button>
+              `
+            : ''}
         </div>
 
-        ${this.syncLoading ? html`
-          <div class="sync-status syncing">
-            <sl-spinner style="font-size: 0.875rem;"></sl-spinner>
-            Syncing templates from grove...
-          </div>
-        ` : ''}
-
-        ${this.syncError ? html`
-          <div class="sync-status error">
-            <sl-icon name="exclamation-triangle"></sl-icon>
-            ${this.syncError}
-          </div>
-        ` : ''}
-
-        ${this.syncSuccess ? html`
-          <div class="sync-status success">
-            <sl-icon name="check-circle"></sl-icon>
-            ${this.syncSuccess}
-          </div>
-        ` : ''}
-
+        ${this.syncLoading
+          ? html`
+              <div class="sync-status syncing">
+                <sl-spinner style="font-size: 0.875rem;"></sl-spinner>
+                Syncing templates from grove...
+              </div>
+            `
+          : ''}
+        ${this.syncError
+          ? html`
+              <div class="sync-status error">
+                <sl-icon name="exclamation-triangle"></sl-icon>
+                ${this.syncError}
+              </div>
+            `
+          : ''}
+        ${this.syncSuccess
+          ? html`
+              <div class="sync-status success">
+                <sl-icon name="check-circle"></sl-icon>
+                ${this.syncSuccess}
+              </div>
+            `
+          : ''}
         ${this.templatesLoading && !this.syncLoading
           ? html`<div class="empty-templates"><sl-spinner></sl-spinner></div>`
           : this.templates.length > 0
@@ -722,9 +986,7 @@ export class ScionPageGroveSettings extends LitElement {
                             ? html`<div class="template-meta">${t.description}</div>`
                             : ''}
                         </div>
-                        ${t.harness
-                          ? html`<span class="template-badge">${t.harness}</span>`
-                          : ''}
+                        ${t.harness ? html`<span class="template-badge">${t.harness}</span>` : ''}
                       </div>
                     `
                   )}
@@ -735,7 +997,9 @@ export class ScionPageGroveSettings extends LitElement {
                   <sl-icon name="file-earmark"></sl-icon>
                   <p>No grove templates synced yet.</p>
                   ${canAny(this.grove!._capabilities, 'update', 'manage')
-                    ? html`<p>Use "Load Templates" to sync templates from the grove's filesystem.</p>`
+                    ? html`<p>
+                        Use "Load Templates" to sync templates from the grove's filesystem.
+                      </p>`
                     : ''}
                 </div>
               `}
