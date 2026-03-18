@@ -1958,6 +1958,12 @@ func runHubLink(cmd *cobra.Command, args []string) error {
 			case hubsync.GroveChoiceCancel:
 				return fmt.Errorf("linking cancelled")
 			case hubsync.GroveChoiceLink:
+				// Register with the selected grove's ID so the hub creates
+				// the membership group (and adds this user as owner) if it
+				// doesn't already exist.
+				if _, err := registerGroveOnHub(ctx, client, selectedID, groveName, resolvedPath, isGlobal); err != nil {
+					util.Debugf("Failed to register during link (non-fatal): %v", err)
+				}
 				// Store the hub grove ID separately — don't overwrite the
 				// deterministic local grove_id (which drives config-dir paths).
 				if err := config.UpdateSetting(resolvedPath, "hub.groveId", selectedID, isGlobal); err != nil {

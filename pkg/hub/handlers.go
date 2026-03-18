@@ -2245,9 +2245,14 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 		existing, err := s.store.GetGrove(ctx, req.ID)
 		if err == nil {
 			// Grove already exists — ensure associated groups exist (backfill for
-			// groves created before group support was added).
+			// groves created before group support was added). Pass the caller
+			// so they get added as an owner of the members group.
+			var callerID string
+			if user := GetUserIdentityFromContext(ctx); user != nil {
+				callerID = user.ID()
+			}
 			s.createGroveGroup(ctx, existing)
-			s.createGroveMembersGroupAndPolicy(ctx, existing)
+			s.createGroveMembersGroupAndPolicy(ctx, existing, callerID)
 			writeJSON(w, http.StatusOK, existing)
 			return
 		}
@@ -2352,7 +2357,10 @@ func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
 // and a policy allowing members to create agents. Best-effort; failures are logged.
 // If the group already exists (e.g., grove was deleted and recreated with the same
 // slug), the existing group is reused and the creator is still added as a member.
-func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *store.Grove) {
+// callerUserID, when non-empty, is also added as an owner of the members group
+// (e.g. the user who linked the grove). It is safe to pass the same value as
+// grove.CreatedBy — duplicate additions are handled gracefully.
+func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *store.Grove, callerUserID ...string) {
 	membersSlug := "grove:" + grove.Slug + ":members"
 
 	// Create grove members group, or look up the existing one
@@ -2395,6 +2403,20 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 		}); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
 			slog.Warn("failed to add creator as owner of grove members group",
 				"grove", grove.ID, "user", grove.CreatedBy, "error", err)
+		}
+	}
+
+	// Add the caller (e.g. the user who linked the grove) as an owner too.
+	// This is a no-op when callerUserID matches grove.CreatedBy.
+	if len(callerUserID) > 0 && callerUserID[0] != "" && callerUserID[0] != grove.CreatedBy {
+		if err := s.store.AddGroupMember(ctx, &store.GroupMember{
+			GroupID:    membersGroup.ID,
+			MemberType: store.GroupMemberTypeUser,
+			MemberID:   callerUserID[0],
+			Role:       store.GroupMemberRoleOwner,
+		}); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
+			slog.Warn("failed to add caller as owner of grove members group",
+				"grove", grove.ID, "user", callerUserID[0], "error", err)
 		}
 	}
 
@@ -2669,9 +2691,15 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		s.autoLinkProviders(ctx, grove)
 	} else {
 		// Existing grove — ensure associated groups exist (backfill for
-		// groves created before group support was added).
+		// groves created before group support was added). Pass the
+		// authenticated user so they are added as owner of the members
+		// group (the person linking deserves membership).
+		var callerID string
+		if user := GetUserIdentityFromContext(ctx); user != nil {
+			callerID = user.ID()
+		}
 		s.createGroveGroup(ctx, grove)
-		s.createGroveMembersGroupAndPolicy(ctx, grove)
+		s.createGroveMembersGroupAndPolicy(ctx, grove, callerID)
 	}
 
 	// Handle broker linking - two paths:

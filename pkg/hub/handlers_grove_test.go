@@ -1147,3 +1147,86 @@ func TestGroveSyncTemplates_GroveNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestGroveRegister_CreatesMembershipGroup verifies that registering a new grove
+// automatically creates a membership group with the caller as owner.
+func TestGroveRegister_CreatesMembershipGroup(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		Name:      "Membership Test",
+		GitRemote: "https://github.com/test/membership-test.git",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.True(t, resp.Created)
+
+	// Members group should exist
+	membersSlug := "grove:" + resp.Grove.Slug + ":members"
+	group, err := s.GetGroupBySlug(ctx, membersSlug)
+	require.NoError(t, err, "members group should have been created")
+	assert.Equal(t, resp.Grove.ID, group.GroveID)
+
+	// The dev user should be an owner
+	members, err := s.GetGroupMembers(ctx, group.ID)
+	require.NoError(t, err)
+	require.Len(t, members, 1, "should have exactly one member (the creator)")
+	assert.Equal(t, DevUserID, members[0].MemberID)
+	assert.Equal(t, store.GroupMemberRoleOwner, members[0].Role)
+}
+
+// TestGroveRegister_ExistingGrove_CreatesMembershipGroup verifies that
+// registering against an existing grove (linking) still creates the membership
+// group and adds the linking user as owner.
+func TestGroveRegister_ExistingGrove_CreatesMembershipGroup(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a grove directly in the store (simulating one created before
+	// membership group support was added — no group exists yet).
+	grove := &store.Grove{
+		ID:        api.NewUUID(),
+		Name:      "Pre-Existing Grove",
+		Slug:      "pre-existing-grove",
+		GitRemote: "github.com/test/pre-existing",
+		CreatedBy: "original-creator-id",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	// Verify no members group exists yet
+	_, err := s.GetGroupBySlug(ctx, "grove:"+grove.Slug+":members")
+	require.ErrorIs(t, err, store.ErrNotFound, "members group should not exist yet")
+
+	// Register (link) via the API — this should backfill the group
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		ID:   grove.ID,
+		Name: grove.Name,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.False(t, resp.Created, "should find existing grove")
+
+	// Members group should now exist
+	membersSlug := "grove:" + grove.Slug + ":members"
+	group, err := s.GetGroupBySlug(ctx, membersSlug)
+	require.NoError(t, err, "members group should have been created on link")
+	assert.Equal(t, grove.ID, group.GroveID)
+
+	// Both the original creator and the linking user should be owners
+	members, err := s.GetGroupMembers(ctx, group.ID)
+	require.NoError(t, err)
+
+	ownerIDs := make(map[string]bool)
+	for _, m := range members {
+		if m.Role == store.GroupMemberRoleOwner {
+			ownerIDs[m.MemberID] = true
+		}
+	}
+	assert.True(t, ownerIDs["original-creator-id"], "original creator should be an owner")
+	assert.True(t, ownerIDs[DevUserID], "linking user should be an owner")
+}
+
