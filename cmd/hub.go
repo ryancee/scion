@@ -452,6 +452,98 @@ func getHubClient(settings *config.Settings) (hubclient.Client, error) {
 	return hubclient.New(endpoint, opts...)
 }
 
+// hubEnabledScope describes where the hub.enabled setting comes from.
+type hubEnabledScope struct {
+	// Enabled is the effective value of hub.enabled after merging.
+	Enabled bool
+	// Scope is "grove", "global", or "default" indicating where the value originates.
+	Scope string
+	// Inherited is true when a grove-scoped invocation uses a global setting.
+	Inherited bool
+}
+
+// getHubEnabledScope determines where the hub.enabled setting comes from.
+// When operating at grove scope, it checks whether the grove has its own
+// hub.enabled setting or is inheriting from the global settings.
+func getHubEnabledScope(resolvedPath string, isGlobal bool, mergedSettings *config.Settings) hubEnabledScope {
+	result := hubEnabledScope{
+		Enabled: mergedSettings.IsHubEnabled(),
+	}
+
+	if isGlobal {
+		result.Scope = "global"
+		return result
+	}
+
+	// Check if the grove itself has hub.enabled set
+	groveSettings, err := config.LoadSettingsFromDir(resolvedPath)
+	if err == nil && groveSettings.Hub != nil && groveSettings.Hub.Enabled != nil {
+		result.Scope = "grove"
+		return result
+	}
+
+	// Grove doesn't have its own setting — check if global has one
+	globalDir, _ := config.GetGlobalDir()
+	if globalDir != "" {
+		globalSettings, err := config.LoadSettingsFromDir(globalDir)
+		if err == nil && globalSettings.Hub != nil && globalSettings.Hub.Enabled != nil {
+			result.Scope = "global"
+			result.Inherited = true
+			return result
+		}
+	}
+
+	// Neither grove nor global has it set — it's the default (false)
+	result.Scope = "default"
+	return result
+}
+
+// hubEndpointScope describes where the hub.endpoint setting comes from.
+type hubEndpointScope struct {
+	// Endpoint is the resolved value.
+	Endpoint string
+	// Source is "flag", "grove", "global", "env", or "none".
+	Source string
+	// Inherited is true when a grove-scoped invocation uses a global or env setting.
+	Inherited bool
+}
+
+// getHubEndpointScope determines where the hub endpoint comes from.
+func getHubEndpointScope(resolvedPath string, isGlobal bool, settings *config.Settings) hubEndpointScope {
+	// --hub flag takes top priority
+	if hubEndpoint != "" {
+		return hubEndpointScope{Endpoint: hubEndpoint, Source: "flag"}
+	}
+
+	if !isGlobal {
+		// Check if grove has its own endpoint
+		groveSettings, err := config.LoadSettingsFromDir(resolvedPath)
+		if err == nil && groveSettings.Hub != nil && groveSettings.Hub.Endpoint != "" {
+			return hubEndpointScope{Endpoint: groveSettings.Hub.Endpoint, Source: "grove"}
+		}
+	}
+
+	// Check global settings
+	globalDir, _ := config.GetGlobalDir()
+	if globalDir != "" {
+		globalSettings, _ := config.LoadSettingsFromDir(globalDir)
+		if globalSettings != nil && globalSettings.Hub != nil && globalSettings.Hub.Endpoint != "" {
+			return hubEndpointScope{
+				Endpoint:  globalSettings.Hub.Endpoint,
+				Source:    "global",
+				Inherited: !isGlobal,
+			}
+		}
+	}
+
+	// Check env var
+	if ep := os.Getenv("SCION_HUB_ENDPOINT"); ep != "" {
+		return hubEndpointScope{Endpoint: ep, Source: "env", Inherited: !isGlobal}
+	}
+
+	return hubEndpointScope{Source: "none"}
+}
+
 func runHubStatus(cmd *cobra.Command, args []string) error {
 	// Bridge --json flag to global --format
 	if hubOutputJSON {
@@ -473,14 +565,22 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 
 	hubEnabled := settings.IsHubEnabled()
 
+	// Determine scope of hub settings
+	enabledScope := getHubEnabledScope(resolvedPath, isGlobal, settings)
+	endpointScope := getHubEndpointScope(resolvedPath, isGlobal, settings)
+
 	// Get authentication info
 	authInfo := getAuthInfo(settings, endpoint)
 
 	if isJSONOutput() {
 		status := map[string]interface{}{
 			"enabled":           hubEnabled,
+			"enabledScope":      enabledScope.Scope,
+			"enabledInherited":  enabledScope.Inherited,
 			"cliOverride":       noHub,
 			"endpoint":          endpoint,
+			"endpointSource":    endpointScope.Source,
+			"endpointInherited": endpointScope.Inherited,
 			"configured":        settings.IsHubConfigured(),
 			"groveId":           settings.GroveID,
 			"scionVersionLocal": version.Short(),
@@ -544,14 +644,29 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 		return outputJSON(status)
 	}
 
+	// Determine scope label for display
+	scopeLabel := "project grove"
+	if isGlobal {
+		scopeLabel = "global"
+	}
+
 	// Text output
 	fmt.Println("Hub Integration Status")
 	fmt.Println("======================")
+	fmt.Printf("Scope:      %s\n", scopeLabel)
 	fmt.Printf("Enabled:    %v\n", hubEnabled)
 	if noHub {
 		fmt.Printf("            (overridden by --no-hub flag)\n")
 	}
+	if enabledScope.Inherited {
+		fmt.Printf("            (inherited from global settings)\n")
+	}
 	fmt.Printf("Endpoint:   %s\n", valueOrNone(endpoint))
+	if endpointScope.Inherited {
+		fmt.Printf("            (inherited from %s)\n", endpointScope.Source)
+	} else if endpointScope.Source == "flag" {
+		fmt.Printf("            (from --hub flag)\n")
+	}
 	fmt.Printf("Configured: %v\n", settings.IsHubConfigured())
 
 	// Show grove_id from top-level setting (where it's now stored)
@@ -1744,20 +1859,26 @@ func runHubEnable(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	scopeLabel := "global"
+	if !isGlobal {
+		scopeLabel = "project grove"
+	}
+
 	if isJSONOutput() {
 		return outputJSON(ActionResult{
 			Status:  "success",
 			Command: "hub enable",
-			Message: "Hub integration enabled.",
+			Message: fmt.Sprintf("Hub integration enabled at %s scope.", scopeLabel),
 			Details: map[string]interface{}{
 				"endpoint":   endpoint,
 				"hubStatus":  health.Status,
 				"hubVersion": health.Version,
+				"scope":      scopeLabel,
 			},
 		})
 	}
 
-	fmt.Printf("Hub integration enabled.\n")
+	fmt.Printf("Hub integration enabled (%s scope).\n", scopeLabel)
 	fmt.Printf("Endpoint: %s\n", endpoint)
 	fmt.Printf("Hub Status: %s (version %s)\n", health.Status, health.Version)
 	fmt.Println("\nAgent operations (create, start, delete) will now be routed through the Hub.")
@@ -1778,16 +1899,42 @@ func runHubDisable(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load settings: %w", err)
 	}
 
+	scopeLabel := "global"
+	if !isGlobal {
+		scopeLabel = "project grove"
+	}
+
+	enabledScope := getHubEnabledScope(resolvedPath, isGlobal, settings)
+
 	if !settings.IsHubEnabled() {
+		msg := "Hub integration is already disabled."
+		if enabledScope.Scope == "default" && !isGlobal {
+			msg = "Hub integration is not enabled at the project grove scope (and no global setting found)."
+		}
 		if isJSONOutput() {
 			return outputJSON(ActionResult{
 				Status:  "success",
 				Command: "hub disable",
-				Message: "Hub integration is already disabled.",
+				Message: msg,
+				Details: map[string]interface{}{
+					"scope": scopeLabel,
+				},
 			})
 		}
-		fmt.Println("Hub integration is already disabled.")
+		fmt.Println(msg)
 		return nil
+	}
+
+	// Warn if hub is enabled globally but user is disabling at grove scope
+	if enabledScope.Inherited {
+		// The setting is inherited from global — disabling at grove scope
+		// will write an explicit hub.enabled=false at the grove level
+		if isJSONOutput() {
+			// Continue to disable at grove scope
+		} else {
+			fmt.Printf("Note: Hub is currently enabled via global settings.\n")
+			fmt.Printf("      This will disable it for this grove only.\n\n")
+		}
 	}
 
 	// Save the disabled setting
@@ -1799,11 +1946,15 @@ func runHubDisable(cmd *cobra.Command, args []string) error {
 		return outputJSON(ActionResult{
 			Status:  "success",
 			Command: "hub disable",
-			Message: "Hub integration disabled.",
+			Message: fmt.Sprintf("Hub integration disabled at %s scope.", scopeLabel),
+			Details: map[string]interface{}{
+				"scope":            scopeLabel,
+				"wasInheritedFrom": enabledScope.Scope,
+			},
 		})
 	}
 
-	fmt.Println("Hub integration disabled.")
+	fmt.Printf("Hub integration disabled (%s scope).\n", scopeLabel)
 	fmt.Println("Agent operations will now be performed locally.")
 	fmt.Println("\nHub configuration is preserved. Use 'scion hub enable' to re-enable.")
 

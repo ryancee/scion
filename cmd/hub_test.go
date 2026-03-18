@@ -15,6 +15,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
@@ -101,6 +103,221 @@ func TestGetAuthInfo_NilHub(t *testing.T) {
 	}
 	info := getAuthInfo(settings, "")
 	assert.Equal(t, "none", info.MethodType)
+}
+
+func TestGetHubEnabledScope_GlobalScope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	enabled := true
+	settings := &config.Settings{
+		Hub: &config.HubClientConfig{Enabled: &enabled},
+	}
+
+	scope := getHubEnabledScope("/some/path", true, settings)
+	assert.Equal(t, "global", scope.Scope)
+	assert.False(t, scope.Inherited)
+	assert.True(t, scope.Enabled)
+}
+
+func TestGetHubEnabledScope_GroveHasOwnSetting(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	// Create grove settings with hub.enabled
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"),
+		[]byte("hub:\n  enabled: true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	enabled := true
+	settings := &config.Settings{
+		Hub: &config.HubClientConfig{Enabled: &enabled},
+	}
+
+	scope := getHubEnabledScope(groveDir, false, settings)
+	assert.Equal(t, "grove", scope.Scope)
+	assert.False(t, scope.Inherited)
+	assert.True(t, scope.Enabled)
+}
+
+func TestGetHubEnabledScope_InheritedFromGlobal(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	// Create global settings with hub.enabled
+	globalDir := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "settings.yaml"),
+		[]byte("hub:\n  enabled: true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create grove settings WITHOUT hub.enabled
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"),
+		[]byte("runtime: docker\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	enabled := true
+	settings := &config.Settings{
+		Hub: &config.HubClientConfig{Enabled: &enabled},
+	}
+
+	scope := getHubEnabledScope(groveDir, false, settings)
+	assert.Equal(t, "global", scope.Scope)
+	assert.True(t, scope.Inherited)
+	assert.True(t, scope.Enabled)
+}
+
+func TestGetHubEnabledScope_DefaultWhenNothingSet(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	// Create empty global dir
+	globalDir := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create grove settings WITHOUT hub.enabled
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := &config.Settings{}
+
+	scope := getHubEnabledScope(groveDir, false, settings)
+	assert.Equal(t, "default", scope.Scope)
+	assert.False(t, scope.Inherited)
+	assert.False(t, scope.Enabled)
+}
+
+func TestGetHubEndpointScope_FromGrove(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	// Save original hubEndpoint and restore after test
+	origHubEndpoint := hubEndpoint
+	hubEndpoint = ""
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	// Create grove settings with hub.endpoint
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"),
+		[]byte("hub:\n  endpoint: https://grove-hub.example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := &config.Settings{
+		Hub: &config.HubClientConfig{Endpoint: "https://grove-hub.example.com"},
+	}
+
+	scope := getHubEndpointScope(groveDir, false, settings)
+	assert.Equal(t, "grove", scope.Source)
+	assert.False(t, scope.Inherited)
+	assert.Equal(t, "https://grove-hub.example.com", scope.Endpoint)
+}
+
+func TestGetHubEndpointScope_InheritedFromGlobal(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	origHubEndpoint := hubEndpoint
+	hubEndpoint = ""
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	// Create global settings with hub.endpoint
+	globalDir := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "settings.yaml"),
+		[]byte("hub:\n  endpoint: https://global-hub.example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create grove settings WITHOUT hub.endpoint
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"),
+		[]byte("runtime: docker\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := &config.Settings{
+		Hub: &config.HubClientConfig{Endpoint: "https://global-hub.example.com"},
+	}
+
+	scope := getHubEndpointScope(groveDir, false, settings)
+	assert.Equal(t, "global", scope.Source)
+	assert.True(t, scope.Inherited)
+	assert.Equal(t, "https://global-hub.example.com", scope.Endpoint)
+}
+
+func TestGetHubEndpointScope_FromEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SCION_HUB_ENDPOINT", "https://env-hub.example.com")
+
+	origHubEndpoint := hubEndpoint
+	hubEndpoint = ""
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	// Create empty global dir
+	globalDir := filepath.Join(tmpDir, ".scion")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create grove settings WITHOUT hub.endpoint
+	groveDir := filepath.Join(tmpDir, "grove-scion")
+	if err := os.MkdirAll(groveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := &config.Settings{}
+
+	scope := getHubEndpointScope(groveDir, false, settings)
+	assert.Equal(t, "env", scope.Source)
+	assert.True(t, scope.Inherited)
+}
+
+func TestGetHubEndpointScope_FromFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SCION_HUB_ENDPOINT", "")
+
+	origHubEndpoint := hubEndpoint
+	hubEndpoint = "https://flag-hub.example.com"
+	defer func() { hubEndpoint = origHubEndpoint }()
+
+	settings := &config.Settings{}
+
+	scope := getHubEndpointScope("/some/path", false, settings)
+	assert.Equal(t, "flag", scope.Source)
+	assert.False(t, scope.Inherited)
+	assert.Equal(t, "https://flag-hub.example.com", scope.Endpoint)
 }
 
 func TestParseDefaultBranch_ParsesSymref(t *testing.T) {
