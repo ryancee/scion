@@ -175,13 +175,21 @@ scion schedule create --type message --agent worker-1 --message "Standup" --at "
 #### 1.6 Recurring Schedule Commands (Phase 2)
 
 ```bash
-# Create a recurring schedule
+# Create a recurring schedule (cron input in local timezone, converted to UTC)
 scion schedule create-recurring \
   --name "daily-standup" \
   --cron "0 9 * * 1-5" \
   --type message \
   --agent all \
   --message "Good morning! Status update please."
+
+# Target a specific agent (skips with a warning if agent doesn't exist at fire time)
+scion schedule create-recurring \
+  --name "worker-check" \
+  --cron "0 * * * *" \
+  --type message \
+  --agent worker-1 \
+  --message "Status check"
 
 # Pause/resume
 scion schedule pause r9s0t1u2
@@ -211,8 +219,7 @@ CREATE TABLE schedules (
     event_type TEXT NOT NULL,            -- "message" (future: "dispatch_agent")
     payload TEXT NOT NULL DEFAULT '{}',  -- JSON: handler-specific configuration
     status TEXT NOT NULL DEFAULT 'active',  -- active, paused, deleted
-    timezone TEXT NOT NULL DEFAULT 'UTC',
-    next_run_at TIMESTAMP,              -- Precomputed next fire time
+    next_run_at TIMESTAMP,              -- Precomputed next fire time (UTC)
     last_run_at TIMESTAMP,
     last_run_status TEXT,               -- success, error
     last_run_error TEXT,
@@ -258,12 +265,14 @@ GET    /api/v1/groves/{groveId}/schedules/{id}/history  # Execution history
 ```
 
 **Create Request:**
+
+All times are in UTC. Clients (CLI, web) are responsible for converting local timezone inputs to UTC before calling the API.
+
 ```json
 {
   "name": "daily-standup",
   "cronExpr": "0 9 * * 1-5",
   "eventType": "message",
-  "timezone": "America/Los_Angeles",
   "payload": {
     "agentName": "all",
     "message": "Good morning! Status update please.",
@@ -283,8 +292,12 @@ scheduler.RegisterRecurring("schedule-evaluator", 1, srv.evaluateSchedulesHandle
 The handler:
 1. Queries active schedules whose `next_run_at` has passed.
 2. For each, executes the appropriate action (e.g., send message).
-3. Computes the next run time from the cron expression.
+   - If the target is an exact agent name that doesn't exist, **skip the run and log a clear warning** with the schedule subsystem metadata (schedule ID, name, target agent).
+   - If the target is "all" (broadcast), deliver to all active agents in the grove.
+3. Computes the next run time from the cron expression (UTC).
 4. Updates the schedule record with `last_run_at`, `next_run_at`, and success/error status.
+
+**Logging:** All schedule evaluation log entries must use appropriate subsystem metadata (e.g., `subsystem=scheduler, schedule_id=..., grove_id=...`) for operational traceability.
 
 **Cron library**: Use `github.com/robfig/cron/v3` for expression parsing and next-time computation. This is a well-maintained, widely-used Go cron library that supports standard 5-field expressions.
 
@@ -347,7 +360,7 @@ A new page at `/groves/{id}/schedules` (or a tab within grove detail) for managi
 ```
 
 **Schedule Detail Dialog / Page:**
-- Name, cron expression, timezone
+- Name, cron expression (displayed in local timezone)
 - Human-readable cron description (e.g., "At 09:00 AM, Monday through Friday")
 - Preview of next 5 run times
 - Action configuration (event type, target, message)
@@ -357,10 +370,11 @@ A new page at `/groves/{id}/schedules` (or a tab within grove detail) for managi
 **Create Schedule Dialog:**
 - Name (text input)
 - Cron expression (text input with presets dropdown: hourly, daily, weekdays, weekly)
-- Timezone (select, default UTC)
 - Event type (select)
-- Target agent (select)
+- Target agent (select: specific agent name, or "all" for broadcast)
 - Message body (textarea)
+
+Note: Cron inputs are presented in the user's local timezone. The web client converts to UTC before calling the API. Display times are rendered in the user's detected local timezone.
 
 #### 3.3 Component Architecture
 
@@ -391,53 +405,36 @@ Extend the existing `admin-scheduler.ts` page with:
 
 ---
 
-## Open Questions
+## Design Decisions
 
-### 1. Should `scion schedule` be a top-level command or nested under `scion grove`?
+The following decisions have been resolved during review:
 
-**Option A (Proposed):** `scion schedule list` — top-level, similar to `scion message`.
-**Option B:** `scion grove schedule list` — nested under grove, emphasizing grove-scoping.
+### 1. `scion schedule` is a top-level command group
+Top-level placement (e.g., `scion schedule list`) is consistent with `scion message`, which is also grove-scoped but top-level. More ergonomic for frequent use than nesting under `scion grove`.
 
-The proposed approach (Option A) is more ergonomic for frequent use and consistent with `scion message` which is also grove-scoped but top-level.
+### 2. Agent targeting: exact name or broadcast
+Recurring schedules support two targeting modes:
+- **Exact agent name**: Target a specific agent by name. If the named agent does not exist at fire time, the schedule run is skipped and the Hub **must log a clear warning** with appropriate subsystem metadata so operators can diagnose stale schedules.
+- **Broadcast ("all")**: Deliver to all agents in the grove. Always succeeds if agents exist.
 
-### 2. Should recurring schedules support targeting a specific agent vs. agent name pattern?
+Label/selector-based targeting is deferred.
 
-Agents are ephemeral — a recurring schedule targeting "worker-1" may outlive the agent. Options:
-- **By name**: Simple, but the schedule errors if the agent no longer exists.
-- **By label/selector**: More resilient but adds complexity.
-- **"All agents" broadcast**: Always works but may be noisy.
-- **Agent name with graceful skip**: If the named agent doesn't exist, log a warning and skip. This is probably the right initial behavior.
+### 3. `scion message --in/--at` shorthand is retained
+Both `scion message --in/--at` and `scion schedule create --type message` are supported. The message flags remain as a convenience for the common case; `scion schedule create` is the general-purpose entry point that will support non-message event types in the future.
 
-### 3. Should the `scion message --in/--at` shorthand remain, or be deprecated in favor of `scion schedule create --type message`?
+### 4. UTC-only storage and API; local timezone at UX layer
+- **API and storage**: All timestamps and cron expressions are stored and evaluated in **UTC only**. The `timezone` field is removed from the `schedules` table.
+- **UX layer (CLI and Web)**: Inputs are accepted in the user's local timezone and **converted to UTC by the client** before sending to the API. The web UI renders times in the user's detected local timezone. The CLI uses the system's local timezone for display and input.
+- This avoids DST complexity in the scheduler while keeping the user experience intuitive.
 
-**Recommendation:** Keep both. `scion message --in/--at` is convenient for the common case. `scion schedule create` is the general-purpose interface. Document the relationship.
+### 5. Schedule execution history reuses `scheduled_events`
+Each recurring schedule fire creates a `scheduled_event` record with an optional `schedule_id` FK. This keeps all event history unified and allows the existing event list UI to show recurring schedule fires alongside one-shot events. All schedule-related log entries **must use the correct logging subsystem metadata** for traceability.
 
-### 4. What timezone handling strategy for recurring schedules?
+### 6. Agent detail page: no scheduled events (deferred)
+Showing pending events targeting a specific agent on the agent detail page is deferred. It can be added later using the existing `scheduled_events` filter by payload content.
 
-The `schedules` table includes a `timezone` field. Options:
-- **UTC only (initially)**: Simplest. Cron expressions are always evaluated in UTC.
-- **Per-schedule timezone**: More user-friendly for "every day at 9am local time" use cases, but adds DST complexity.
-
-**Recommendation:** Start with UTC-only. Add timezone support in a later iteration using Go's `time.LoadLocation`.
-
-### 5. How should schedule execution history be stored?
-
-Options:
-- **Reuse `scheduled_events` table**: Each recurring schedule fire creates a `scheduled_event` record with a `schedule_id` FK. Pros: unified event history. Cons: mixes user-created one-shot events with system-generated recurring fires.
-- **Separate `schedule_runs` table**: Dedicated table for recurring schedule execution history. Pros: clean separation. Cons: another table.
-
-**Recommendation:** Reuse `scheduled_events` with an optional `schedule_id` column. This keeps all event history in one place and allows the existing event list UI to show recurring schedule fires.
-
-### 6. Should the web UI show scheduled events in the agent detail page?
-
-Showing "pending events targeting this agent" on the agent detail page would be useful but adds API complexity (query by agent). This could be a future enhancement using the existing `scheduled_events` filter by payload content.
-
-### 7. Cron expression validation — how strict?
-
-Should the API reject invalid cron expressions at creation time, or allow any string and fail at evaluation time?
-
-**Recommendation:** Validate at creation time using the cron library's parser. Return a 422 with a clear error message for invalid expressions. Also return a computed `next_run_at` in the creation response as confirmation.
-
+### 7. Cron expression validation: strict, fail early
+The API validates cron expressions at creation time using the cron library's parser. Invalid expressions return a **422** with a clear error message. The creation response includes a computed `next_run_at` as confirmation.
 ---
 
 ## Implementation Phases
@@ -507,7 +504,7 @@ Should the API reject invalid cron expressions at creation time, or allow any st
 | `pkg/store/models.go` | Add `Schedule` model, `ScheduleFilter` |
 | `pkg/store/store.go` | Add `ScheduleStore` interface |
 | `pkg/store/sqlite/sqlite.go` | New migration, `ScheduleStore` implementation |
-| `pkg/hub/scheduler.go` | Add `evaluateSchedulesHandler` |
+| `pkg/hub/scheduler.go` | Add `evaluateSchedulesHandler` with subsystem logging |
 | `pkg/hub/handlers_schedules.go` | **New** — schedule API handlers |
 | `pkg/hub/server.go` | Register new routes and scheduler handler |
 | `pkg/hubclient/schedules.go` | **New** — `ScheduleService` client |
