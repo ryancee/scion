@@ -41,38 +41,59 @@ runcmd:
 
   # Install Caddy
   - apt-get install -y apt-transport-https curl
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - |
+    if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    fi
+  - |
+    if [ ! -f /etc/apt/sources.list.d/caddy-stable.list ]; then
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+    fi
   - apt-get update
   - apt-get install -y caddy
 
   # Install Docker
   - mkdir -p /etc/apt/keyrings
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - |
+    if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    fi
+  - |
+    if [ ! -f /etc/apt/sources.list.d/docker.list ]; then
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    fi
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   - systemctl enable docker
   - systemctl start docker
 
   # Install NATS Server
-  - curl -L https://github.com/nats-io/nats-server/releases/download/v2.10.20/nats-server-v2.10.20-amd64.deb -o /tmp/nats.deb
-  - dpkg -i /tmp/nats.deb
+  - |
+    if ! command -v nats-server >/dev/null 2>&1; then
+      curl -L https://github.com/nats-io/nats-server/releases/download/v2.10.20/nats-server-v2.10.20-amd64.deb -o /tmp/nats.deb
+      dpkg -i /tmp/nats.deb
+    fi
   - systemctl enable nats-server
   - systemctl start nats-server
 
   # Install Go (latest stable)
-  - curl -L https://go.dev/dl/go1.23.0.linux-amd64.tar.gz -o /tmp/go.tar.gz
-  - tar -C /usr/local -xzf /tmp/go.tar.gz
-  - ln -s /usr/local/go/bin/go /usr/bin/go
-  - ln -s /usr/local/go/bin/gofmt /usr/bin/gofmt
+  - |
+    if [ ! -d /usr/local/go ]; then
+      curl -L https://go.dev/dl/go1.23.0.linux-amd64.tar.gz -o /tmp/go.tar.gz
+      tar -C /usr/local -xzf /tmp/go.tar.gz
+    fi
+  - ln -sf /usr/local/go/bin/go /usr/bin/go
+  - ln -sf /usr/local/go/bin/gofmt /usr/bin/gofmt
 
   # Install Node.js (LTS)
-  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  - apt-get install -y nodejs
+  - |
+    if ! command -v node >/dev/null 2>&1; then
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+    fi
 
   # Setup scion user and directories (optional, but good practice)
-  - useradd -m -s /bin/bash scion
-  - usermod -aG docker scion
+  - id scion &>/dev/null || useradd -m -s /bin/bash scion
+  - getent group docker &>/dev/null && usermod -aG docker scion || true
 
 final_message: "Scion Demo Server Provisioning Complete"

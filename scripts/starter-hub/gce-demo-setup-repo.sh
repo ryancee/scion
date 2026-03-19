@@ -32,8 +32,18 @@ gcloud compute ssh "${INSTANCE_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --command "
-        sudo useradd -m -s /bin/bash scion || true
-        sudo usermod -aG docker scion || true
+        if ! id scion &>/dev/null; then
+            sudo useradd -m -s /bin/bash scion
+            echo '  -> Created scion user'
+        else
+            echo '  -> scion user already exists'
+        fi
+        if getent group docker &>/dev/null; then
+            sudo usermod -aG docker scion
+            echo '  -> Added scion to docker group'
+        else
+            echo '  -> docker group does not exist yet (cloud-init may still be running), skipping'
+        fi
         sudo mkdir -p /home/scion/.ssh
         sudo chown -R scion:scion /home/scion/.ssh
         sudo chmod 700 /home/scion/.ssh
@@ -74,17 +84,29 @@ gcloud compute ssh "${INSTANCE_NAME}" \
     --zone="${ZONE}" \
     --command "
         set -euo pipefail
-        
-        # Add github.com to known_hosts to avoid interactive prompt
-        sudo -u scion sh -c 'ssh-keyscan github.com >> /home/scion/.ssh/known_hosts'
-        
-        if [ ! -d \"/home/scion/scion\" ]; then
-            echo \"Cloning git@github.com:${REPO}.git...\"
+
+        # Add github.com to known_hosts (idempotent - avoid duplicates)
+        sudo -u scion sh -c '
+            if ! grep -q \"^github.com\" /home/scion/.ssh/known_hosts 2>/dev/null; then
+                ssh-keyscan github.com >> /home/scion/.ssh/known_hosts 2>/dev/null
+                echo \"  -> Added github.com to known_hosts\"
+            else
+                echo \"  -> github.com already in known_hosts\"
+            fi
+        '
+
+        if [ -d \"/home/scion/scion/.git\" ]; then
+            echo \"Repository /home/scion/scion already exists, pulling latest...\"
+            sudo -u scion sh -c 'cd /home/scion/scion && git pull'
+        elif [ -d \"/home/scion/scion\" ]; then
+            echo \"Directory /home/scion/scion exists but is not a git repo, removing and cloning...\"
+            sudo rm -rf /home/scion/scion
             sudo -u scion git clone \"git@github.com:${REPO}.git\" /home/scion/scion
         else
-            echo \"Directory /home/scion/scion already exists, skipping clone.\"
+            echo \"Cloning git@github.com:${REPO}.git...\"
+            sudo -u scion git clone \"git@github.com:${REPO}.git\" /home/scion/scion
         fi
-        
+
         echo \"=== Repository Setup Complete ===\"
     "
 
