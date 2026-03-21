@@ -771,7 +771,7 @@ export class ScionPageAgentDetail extends LitElement {
           throw new Error(await extractApiError(response, 'Failed to delete agent'));
         }
 
-        window.location.href = '/agents';
+        window.location.href = this.grove ? `/groves/${this.grove.id}` : '/agents';
       } catch (err) {
         console.error('Failed to delete agent:', err);
         alert(err instanceof Error ? err.message : 'Failed to delete agent');
