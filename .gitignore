@@ -1,5 +1,6 @@
 # scion ignore
-.scion/
+.scion/agents
+.scion/harness-configs
 # binaries
 /build/
 /.build/
