@@ -26,6 +26,9 @@ import (
 	"syscall"
 	"time"
 
+	secretmanager "cloud.google.com/go/secretmanager/apiv1"
+	smpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"google.golang.org/api/iterator"
 	"gopkg.in/yaml.v3"
 
 	"github.com/GoogleCloudPlatform/scion/extras/scion-chat-app/internal/chatapp"
@@ -63,17 +66,45 @@ func main() {
 	defer store.Close()
 	log.Info("state database initialized", "path", dbPath)
 
-	// Load hub signing key.
-	if cfg.Hub.SigningKey == "" {
-		log.Error("hub signing_key is required")
-		os.Exit(1)
+	// Load hub signing key: local file → explicit SM secret → auto-discover from SM.
+	var signingKeyB64 string
+	switch {
+	case cfg.Hub.SigningKey != "":
+		data, err := os.ReadFile(cfg.Hub.SigningKey)
+		if err != nil {
+			log.Error("failed to read hub signing key", "path", cfg.Hub.SigningKey, "error", err)
+			os.Exit(1)
+		}
+		signingKeyB64 = strings.TrimSpace(string(data))
+	case cfg.Hub.SigningKeySecret != "":
+		smCtx, smCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		val, err := accessSecret(smCtx, cfg.Hub.SigningKeySecret)
+		smCancel()
+		if err != nil {
+			log.Error("failed to fetch signing key from Secret Manager", "secret", cfg.Hub.SigningKeySecret, "error", err)
+			os.Exit(1)
+		}
+		signingKeyB64 = strings.TrimSpace(val)
+		log.Info("loaded signing key from Secret Manager", "secret", cfg.Hub.SigningKeySecret)
+	default:
+		// Auto-discover the signing key from GCP Secret Manager by label.
+		projectID := cfg.Platforms.GoogleChat.ProjectID
+		if projectID == "" {
+			log.Error("hub signing_key, signing_key_secret, or platforms.google_chat.project_id (for auto-discovery) is required")
+			os.Exit(1)
+		}
+		log.Info("no signing key configured, searching Secret Manager by label", "project_id", projectID)
+		smCtx, smCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		val, secretName, err := discoverSigningKey(smCtx, projectID)
+		smCancel()
+		if err != nil {
+			log.Error("failed to auto-discover signing key from Secret Manager", "project_id", projectID, "error", err)
+			os.Exit(1)
+		}
+		signingKeyB64 = strings.TrimSpace(val)
+		log.Info("auto-discovered signing key from Secret Manager", "secret", secretName)
 	}
-	signingKeyData, err := os.ReadFile(cfg.Hub.SigningKey)
-	if err != nil {
-		log.Error("failed to read hub signing key", "path", cfg.Hub.SigningKey, "error", err)
-		os.Exit(1)
-	}
-	signingKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(signingKeyData)))
+	signingKey, err := base64.StdEncoding.DecodeString(signingKeyB64)
 	if err != nil {
 		log.Error("failed to decode hub signing key (expected base64)", "error", err)
 		os.Exit(1)
@@ -255,6 +286,70 @@ func loadConfig(path string) (*chatapp.Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	return &cfg, nil
+}
+
+// discoverSigningKey searches GCP Secret Manager for a secret matching the
+// local hub instance. It filters by scion-name=user_signing_key and
+// scion-hub-hostname matching the local hostname, which uniquely identifies
+// the hub in a multi-hub project.
+func discoverSigningKey(ctx context.Context, projectID string) (value, resourceName string, err error) {
+	client, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("creating secret manager client: %w", err)
+	}
+	defer client.Close()
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", "", fmt.Errorf("getting hostname for label match: %w", err)
+	}
+	// Labels are stored lowercase (sanitizeLabel in the hub).
+	hostnameLabel := strings.ToLower(hostname)
+
+	filter := fmt.Sprintf(
+		"labels.scion-name=user_signing_key AND labels.scion-hub-hostname=%s",
+		hostnameLabel,
+	)
+
+	it := client.ListSecrets(ctx, &smpb.ListSecretsRequest{
+		Parent: fmt.Sprintf("projects/%s", projectID),
+		Filter: filter,
+	})
+
+	secret, err := it.Next()
+	if err == iterator.Done {
+		return "", "", fmt.Errorf("no secret with labels scion-name=user_signing_key, scion-hub-hostname=%s found in project %s", hostnameLabel, projectID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("listing secrets: %w", err)
+	}
+
+	resp, err := client.AccessSecretVersion(ctx, &smpb.AccessSecretVersionRequest{
+		Name: secret.Name + "/versions/latest",
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("accessing secret %s: %w", secret.Name, err)
+	}
+	return string(resp.Payload.Data), secret.Name, nil
+}
+
+// accessSecret fetches the latest version of a GCP Secret Manager secret.
+// The resourceName should be in the form "projects/{project}/secrets/{name}".
+// It uses Application Default Credentials (ADC).
+func accessSecret(ctx context.Context, resourceName string) (string, error) {
+	client, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		return "", fmt.Errorf("creating secret manager client: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.AccessSecretVersion(ctx, &smpb.AccessSecretVersionRequest{
+		Name: resourceName + "/versions/latest",
+	})
+	if err != nil {
+		return "", fmt.Errorf("accessing secret version: %w", err)
+	}
+	return string(resp.Payload.Data), nil
 }
 
 // initLogger creates a structured logger from the logging configuration.
