@@ -28,20 +28,17 @@ import (
 	"github.com/GoogleCloudPlatform/scion/pkg/messages"
 )
 
-// messengerLookup adapts a Messenger to satisfy identity.UserLookup.
-type messengerLookup struct {
-	m Messenger
+// eventUserLookup returns user info from the ChatEvent itself, using the
+// Google-asserted email from the signed event payload. This avoids the need
+// for a separate API call to look up the user's email.
+type eventUserLookup struct {
+	event *ChatEvent
 }
 
-func (ml *messengerLookup) GetUser(ctx context.Context, userID string) (*identity.ChatUserInfo, error) {
-	u, err := ml.m.GetUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
+func (el *eventUserLookup) GetUser(ctx context.Context, userID string) (*identity.ChatUserInfo, error) {
 	return &identity.ChatUserInfo{
-		PlatformID:  u.PlatformID,
-		DisplayName: u.DisplayName,
-		Email:       u.Email,
+		PlatformID: el.event.UserID,
+		Email:      el.event.UserEmail,
 	}, nil
 }
 
@@ -177,7 +174,7 @@ func (r *CommandRouter) handleMessage(ctx context.Context, event *ChatEvent) err
 	}
 
 	// Try to resolve the user
-	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &messengerLookup{r.messenger}, event.UserID, event.Platform)
+	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &eventUserLookup{event}, event.UserID, event.Platform)
 	if err != nil {
 		return fmt.Errorf("resolving user: %w", err)
 	}
@@ -463,7 +460,7 @@ func (r *CommandRouter) cmdLink(ctx context.Context, event *ChatEvent, args []st
 		return r.reply(ctx, event, "Usage: `/scion link <grove-slug>`")
 	}
 
-	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &messengerLookup{r.messenger}, event.UserID, event.Platform)
+	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &eventUserLookup{event}, event.UserID, event.Platform)
 	if err != nil || mapping == nil {
 		return r.reply(ctx, event, "Authentication required. Use `/scion register` first.")
 	}
@@ -536,7 +533,7 @@ func (r *CommandRouter) cmdRegister(ctx context.Context, event *ChatEvent, args 
 	}
 
 	// Try auto-registration by email (short-circuit)
-	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &messengerLookup{r.messenger}, event.UserID, event.Platform)
+	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &eventUserLookup{event}, event.UserID, event.Platform)
 	if err != nil {
 		return fmt.Errorf("auto-registration: %w", err)
 	}
@@ -544,7 +541,9 @@ func (r *CommandRouter) cmdRegister(ctx context.Context, event *ChatEvent, args 
 		return r.reply(ctx, event, fmt.Sprintf("Registered! Your chat account is linked to Hub user `%s`.", mapping.HubUserEmail))
 	}
 
-	// No email match — fall back to device authorization flow.
+	// No email match — the user's chat email doesn't match any Hub user.
+	// Fall back to device authorization flow so they can authenticate
+	// with the Hub account they want to link.
 	// Check if there's a pending auth and the user is confirming
 	authKey := event.UserID + ":" + event.Platform
 	r.mu.Lock()
@@ -580,12 +579,12 @@ func (r *CommandRouter) cmdRegister(ctx context.Context, event *ChatEvent, args 
 	card := Card{
 		Header: CardHeader{
 			Title:    "Device Authorization",
-			Subtitle: "Link your Hub account",
+			Subtitle: "No matching Hub account found for your chat email",
 		},
 		Sections: []CardSection{
 			{
 				Widgets: []Widget{
-					{Type: WidgetText, Content: fmt.Sprintf("Open the following URL and enter the code to link your account:\n\n*URL:* %s\n*Code:* `%s`", verifyURL, resp.UserCode)},
+					{Type: WidgetText, Content: fmt.Sprintf("Your chat email doesn't match any Hub user. Sign in with your Hub account to link it:\n\n*URL:* %s\n*Code:* `%s`", verifyURL, resp.UserCode)},
 				},
 			},
 			{
@@ -971,7 +970,7 @@ func (r *CommandRouter) requireSpaceLink(ctx context.Context, event *ChatEvent) 
 
 // clientForUser creates a Hub client authenticated as the event's user.
 func (r *CommandRouter) clientForUser(ctx context.Context, event *ChatEvent) (hubclient.Client, error) {
-	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &messengerLookup{r.messenger}, event.UserID, event.Platform)
+	mapping, err := r.idMapper.ResolveOrAutoRegister(ctx, &eventUserLookup{event}, event.UserID, event.Platform)
 	if err != nil {
 		return nil, err
 	}

@@ -425,6 +425,7 @@ func (a *Adapter) normalizeEvent(raw *rawEvent) *chatapp.ChatEvent {
 	// User is at the top level of the chat object.
 	if raw.Chat.User != nil {
 		event.UserID = raw.Chat.User.Name
+		event.UserEmail = raw.Chat.User.Email
 	}
 
 	// Extract parameters from commonEventObject.
