@@ -175,8 +175,10 @@ infer_dependencies() {
         return
     fi
 
-    # Resolve git refs for each candidate branch
-    # Try origin/<branch>, then <branch> directly
+    # Fetch PR head commits into the local repo so ancestry checks work.
+    # PR branches live under refs/pull/<number>/head on the remote and
+    # are not fetched by a regular 'git fetch origin'.
+    echo "Fetching PR head commits for ancestry analysis..." >&2
     local nums=""
     local heads=""
     local resolved_refs=""
@@ -184,13 +186,19 @@ infer_dependencies() {
 
     while read -r num head; do
         local ref=""
+        # 1. Already available locally (tracking branch or checked-out)
         if git rev-parse --verify "origin/$head" &>/dev/null; then
             ref="origin/$head"
         elif git rev-parse --verify "$head" &>/dev/null; then
             ref="$head"
         else
-            skipped="$skipped  #$num ($head): branch not found locally\n"
-            continue
+            # 2. Fetch the PR's head ref from the remote
+            if git fetch origin "refs/pull/$num/head:refs/pr/$num" &>/dev/null 2>&1; then
+                ref="refs/pr/$num"
+            else
+                skipped="$skipped  #$num ($head): could not fetch\n"
+                continue
+            fi
         fi
         nums="$nums $num"
         heads="$heads $head"
@@ -198,10 +206,8 @@ infer_dependencies() {
     done <<< "$candidates"
 
     if [ -n "$skipped" ]; then
-        echo "Note: skipping inference for PRs without local refs:" >&2
+        echo "Note: skipping inference for PRs that could not be resolved:" >&2
         echo -e "$skipped" >&2
-        echo "  Run 'git fetch origin' to make all branches available." >&2
-        echo "" >&2
     fi
 
     # Convert to arrays
