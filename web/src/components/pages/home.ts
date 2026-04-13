@@ -80,16 +80,18 @@ export class ScionPageHome extends LitElement {
         apiFetch('/api/v1/groves')
       ]);
 
+      if (!this.isConnected) return;
+
       if (agentsResp.ok) {
         const data = await agentsResp.json();
-        this.agents = Array.isArray(data) ? data : data.agents || [];
-        stateManager.seedAgents(this.agents);
+        const agents = Array.isArray(data) ? data : data.agents || [];
+        stateManager.seedAgents(agents);
       }
 
       if (grovesResp.ok) {
         const data = await grovesResp.json();
-        this.groves = Array.isArray(data) ? data : data.groves || [];
-        stateManager.seedGroves(this.groves);
+        const groves = Array.isArray(data) ? data : data.groves || [];
+        stateManager.seedGroves(groves);
       }
     } catch (err) {
       console.error('Failed to load data for dashboard:', err);

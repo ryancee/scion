@@ -386,8 +386,7 @@ export class StateManager extends EventTarget {
   /**
    * Seed the agents map with full objects from a REST API response.
    * Called after initial data fetch so that SSE delta merging has
-   * complete baseline data. Does not trigger notifications — the
-   * calling component already holds the data from its own fetch.
+   * complete baseline data. Triggers notifications to all listeners.
    */
   seedAgents(agents: Agent[], clear = false): void {
     if (clear) {
