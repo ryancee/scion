@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -1037,13 +1038,32 @@ func TestSharedDirFiles_GitGroveMultipleProviders(t *testing.T) {
 // =============================================================================
 
 // createTestSharedWorkspaceGrove creates a shared-workspace git grove via the API.
+// It uses a local git repo as the clone source so that tests don't require network
+// access or a GITHUB_TOKEN.
 func createTestSharedWorkspaceGrove(t *testing.T, srv *Server, name, remote string) (*store.Grove, string) {
 	t.Helper()
+
+	// Create a local git repo to serve as the clone source
+	sourceDir := t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@test.com"},
+		{"config", "user.name", "Test"},
+		{"commit", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = sourceDir
+		require.NoError(t, cmd.Run(), "git %v", args)
+	}
 
 	rec := doRequest(t, srv, http.MethodPost, "/api/v1/groves", CreateGroveRequest{
 		Name:          name,
 		GitRemote:     remote,
 		WorkspaceMode: "shared",
+		Labels: map[string]string{
+			"scion.dev/clone-url":      sourceDir,
+			"scion.dev/default-branch": "master",
+		},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
 
