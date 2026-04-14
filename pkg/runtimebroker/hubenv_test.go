@@ -116,6 +116,108 @@ func TestResolveHubEndpointForStartPrecedence(t *testing.T) {
 	}
 }
 
+func TestResolveHubEndpointForCreatePrecedence(t *testing.T) {
+	groveDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"), []byte("hub:\n  endpoint: https://settings.example.com\n"), 0644); err != nil {
+		t.Fatalf("failed to write settings: %v", err)
+	}
+
+	tests := []struct {
+		name                 string
+		req                  string
+		connection           string
+		broker               string
+		resolved             map[string]string
+		grovePath            string
+		containerHubEndpoint string
+		runtimeName          string
+		want                 string
+	}{
+		{
+			name:       "req endpoint takes priority",
+			req:        "https://req.example.com",
+			connection: "https://conn.example.com",
+			broker:     "https://broker.example.com",
+			want:       "https://req.example.com",
+		},
+		{
+			name:       "connection fallback when req absent",
+			connection: "https://conn.example.com",
+			broker:     "https://broker.example.com",
+			want:       "https://conn.example.com",
+		},
+		{
+			name:   "broker fallback when req and connection absent",
+			broker: "https://broker.example.com",
+			want:   "https://broker.example.com",
+		},
+		{
+			name:      "resolved env fallback",
+			resolved:  map[string]string{"SCION_HUB_ENDPOINT": "https://resolved.example.com"},
+			grovePath: groveDir,
+			want:      "https://resolved.example.com",
+		},
+		{
+			name:      "settings fallback when others absent",
+			grovePath: groveDir,
+			want:      "https://settings.example.com",
+		},
+		{
+			name:                 "localhost req overridden by non-localhost connection",
+			req:                  "http://localhost:8080",
+			connection:           "https://hub.remote.example.com",
+			broker:               "http://localhost:8080",
+			containerHubEndpoint: "http://host.containers.internal:8080",
+			runtimeName:          "podman",
+			want:                 "https://hub.remote.example.com",
+		},
+		{
+			name:                 "localhost req kept when connection is also localhost",
+			req:                  "http://localhost:8080",
+			connection:           "http://localhost:9090",
+			containerHubEndpoint: "http://host.containers.internal:9810",
+			runtimeName:          "podman",
+			want:                 "http://host.containers.internal:8080",
+		},
+		{
+			name:                 "localhost req kept when connection is empty",
+			req:                  "http://localhost:8080",
+			containerHubEndpoint: "http://host.containers.internal:9810",
+			runtimeName:          "podman",
+			want:                 "http://host.containers.internal:8080",
+		},
+		{
+			name:                 "127.0.0.1 req overridden by non-localhost connection",
+			req:                  "http://127.0.0.1:8080",
+			connection:           "https://hub.remote.example.com",
+			containerHubEndpoint: "http://host.docker.internal:8080",
+			runtimeName:          "docker",
+			want:                 "https://hub.remote.example.com",
+		},
+		{
+			name:                 "non-localhost req preserved even with different connection",
+			req:                  "https://hub1.example.com",
+			connection:           "https://hub2.example.com",
+			containerHubEndpoint: "http://host.containers.internal:8080",
+			runtimeName:          "podman",
+			want:                 "https://hub1.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rn := tt.runtimeName
+			if rn == "" {
+				rn = "docker"
+			}
+			got := resolveHubEndpointForCreate(tt.req, tt.connection, tt.broker, tt.resolved, tt.grovePath, tt.containerHubEndpoint, rn)
+			if got != tt.want {
+				t.Fatalf("resolveHubEndpointForCreate() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyContainerBridgeOverride(t *testing.T) {
 	tests := []struct {
 		name                 string

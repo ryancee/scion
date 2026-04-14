@@ -50,6 +50,13 @@ func resolveHubEndpointForCreate(reqHubEndpoint, connectionHubEndpoint, brokerHu
 	if hubEndpoint == "" {
 		hubEndpoint = hubEndpointFromGroveSettings(grovePath)
 	}
+	// A localhost endpoint from a remote hub dispatch refers to the hub
+	// machine's loopback, not this broker's. When we have a non-localhost
+	// connection endpoint (the URL this broker used to reach the hub),
+	// prefer it since it is known to be reachable from this broker.
+	if isLocalhostEndpoint(hubEndpoint) && connectionHubEndpoint != "" && !isLocalhostEndpoint(connectionHubEndpoint) {
+		hubEndpoint = connectionHubEndpoint
+	}
 	return applyContainerBridgeOverride(hubEndpoint, containerHubEndpoint, runtimeName)
 }
 
