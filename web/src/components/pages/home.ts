@@ -84,7 +84,7 @@ export class ScionPageHome extends LitElement {
         apiFetch('/api/v1/groves')
       ]);
 
-      if (!this.isConnected) return;
+      if (!this.isConnected || stateManager.currentScope?.type !== 'dashboard') return;
 
       if (agentsResp.ok) {
         const data = await agentsResp.json();
