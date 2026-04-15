@@ -211,12 +211,12 @@ func CheckHubAvailabilityForAgents(grovePath string, excludedAgents []string, sk
 	}
 
 	opts := hubsync.EnsureHubReadyOptions{
-		AutoConfirm:    autoConfirm,
-		NoHub:          noHub,
+		AutoConfirm:      autoConfirm,
+		NoHub:            noHub,
 		EndpointOverride: hubEndpoint,
-		SkipSync:       skipSync,
-		TargetAgent:    targetAgent,
-		ExcludedAgents: excludedAgents,
+		SkipSync:         skipSync,
+		TargetAgent:      targetAgent,
+		ExcludedAgents:   excludedAgents,
 	}
 
 	hubCtx, err := hubsync.EnsureHubReady(grovePath, opts)
