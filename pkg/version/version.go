@@ -82,6 +82,36 @@ func Get() string {
 	return fmt.Sprintf("Commit: %s\nBuild Time: %s", commit, buildTime)
 }
 
+// GetBuildTime returns the build time, applying fallbacks if the ldflags
+// variable was not set. Tries: ldflags value, then binary modification time.
+func GetBuildTime() string {
+	if BuildTime != "" {
+		return BuildTime
+	}
+	if exe, err := os.Executable(); err == nil {
+		if info, err := os.Stat(exe); err == nil {
+			return info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
+		}
+	}
+	return "unknown"
+}
+
+// GetCommit returns the commit hash, applying fallbacks if the ldflags
+// variable was not set. Tries: ldflags value, then Go debug build info.
+func GetCommit() string {
+	if Commit != "" {
+		return Commit
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return setting.Value
+			}
+		}
+	}
+	return "unknown"
+}
+
 // Short returns a short version string (either Version or short Commit hash).
 func Short() string {
 	if Version != "" {

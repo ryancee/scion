@@ -109,8 +109,8 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter) {
 			// Return empty/default response if no settings file exists
 			writeJSON(w, http.StatusOK, ServerConfigResponse{
 				ScionVersion:   version.Short(),
-				ScionCommit:    version.Commit,
-				ScionBuildTime: version.BuildTime,
+				ScionCommit:    version.GetCommit(),
+				ScionBuildTime: version.GetBuildTime(),
 				SchemaVersion:  "1",
 			})
 			return
@@ -128,8 +128,8 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter) {
 	// Mask sensitive fields before sending to the client
 	resp := ServerConfigResponse{
 		ScionVersion:         version.Short(),
-		ScionCommit:          version.Commit,
-		ScionBuildTime:       version.BuildTime,
+		ScionCommit:          version.GetCommit(),
+		ScionBuildTime:       version.GetBuildTime(),
 		SchemaVersion:        vs.SchemaVersion,
 		ActiveProfile:        vs.ActiveProfile,
 		DefaultTemplate:      vs.DefaultTemplate,
