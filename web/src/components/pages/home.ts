@@ -73,6 +73,10 @@ export class ScionPageHome extends LitElement {
     this.groves = stateManager.getGroves();
   }
 
+  private get activeAgentCount(): number {
+    return this.agents.filter(a => isAgentRunning(a)).length;
+  }
+
   private async loadData(): Promise<void> {
     try {
       const [agentsResp, grovesResp] = await Promise.all([
@@ -85,12 +89,14 @@ export class ScionPageHome extends LitElement {
       if (agentsResp.ok) {
         const data = await agentsResp.json();
         const agents = Array.isArray(data) ? data : data.agents || [];
+        this.agents = agents;
         stateManager.seedAgents(agents);
       }
 
       if (grovesResp.ok) {
         const data = await grovesResp.json();
         const groves = Array.isArray(data) ? data : data.groves || [];
+        this.groves = groves;
         stateManager.seedGroves(groves);
       }
     } catch (err) {
@@ -306,7 +312,7 @@ export class ScionPageHome extends LitElement {
         <div class="stat-card">
           <h3>Active Agents</h3>
           <div class="stat-value">
-            <span>${this.agents.filter(a => isAgentRunning(a)).length}</span>
+            <span>${this.activeAgentCount}</span>
           </div>
           <div class="stat-change">
             <scion-status-badge status="success" label="Ready" size="small"></scion-status-badge>
