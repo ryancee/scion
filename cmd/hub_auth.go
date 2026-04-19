@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/scion/pkg/apiclient"
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/GoogleCloudPlatform/scion/pkg/credentials"
 	"github.com/GoogleCloudPlatform/scion/pkg/hub/auth"
@@ -32,6 +33,7 @@ import (
 var (
 	hubAuthHubURL    string
 	hubAuthNoBrowser bool
+	hubAuthDevToken  bool
 )
 
 type invalidHubAuthProviderError struct {
@@ -109,6 +111,7 @@ func init() {
 	hubAuthLoginCmd.Flags().StringVar(&hubAuthHubURL, "hub-url", "", "Hub server URL (defaults to configured endpoint)")
 	hubAuthLoginCmd.Flags().BoolVar(&hubAuthNoBrowser, "no-browser", false, "Use device flow instead of opening a browser")
 	hubAuthLoginCmd.Flags().String("provider", "", "OAuth provider to use (google or github)")
+	hubAuthLoginCmd.Flags().BoolVar(&hubAuthDevToken, "dev-token", false, "Authenticate using the local dev token (~/.scion/dev-token or SCION_DEV_TOKEN)")
 }
 
 func runHubAuthLogin(cmd *cobra.Command, args []string) error {
@@ -122,6 +125,11 @@ func runHubAuthLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Authenticating with Hub at %s\n", hubURL)
+
+	// Dev-token login: bypass OAuth entirely by using the local dev token.
+	if hubAuthDevToken {
+		return runDevTokenLogin(hubURL)
+	}
 
 	// Create hub client (unauthenticated for initial OAuth)
 	client, err := hubclient.New(hubURL, hubclient.WithTimeout(30*time.Second))
@@ -245,6 +253,29 @@ func storeTokenAndPrintResult(hubURL string, tokenResp *hubclient.CLITokenRespon
 		}
 	}
 
+	return nil
+}
+
+// runDevTokenLogin authenticates using the local dev token, storing it as
+// credentials so subsequent CLI commands use it without needing OAuth.
+func runDevTokenLogin(hubURL string) error {
+	token, source := apiclient.ResolveDevTokenWithSource()
+	if token == "" {
+		return fmt.Errorf("no dev token found; set SCION_DEV_TOKEN or ensure ~/.scion/dev-token exists")
+	}
+
+	credToken := &credentials.TokenResponse{
+		AccessToken: token,
+		// Dev tokens don't expire — use a far-future time so the credential
+		// store doesn't treat them as expired.
+		ExpiresIn: 87600 * time.Hour, // 10 years
+	}
+
+	if err := credentials.Store(hubURL, credToken); err != nil {
+		return fmt.Errorf("failed to store credentials: %w", err)
+	}
+
+	fmt.Printf("\nAuthentication successful! (dev token from %s)\n", source)
 	return nil
 }
 
