@@ -35,7 +35,7 @@ PUSH=""
 PLATFORM=""
 TAG="latest"
 
-HARNESSES=(claude gemini opencode codex)
+HARNESSES=(claude gemini opencode codex pi)
 
 usage() {
   cat <<EOF

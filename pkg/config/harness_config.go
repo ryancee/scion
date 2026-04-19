@@ -148,7 +148,14 @@ func loadHarnessConfigsFromDir(parentDir string, into map[string]*HarnessConfigD
 		return
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		isDir := entry.IsDir()
+		// If the entry is a symlink, follow it to check if the target is a directory.
+		if !isDir && entry.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(filepath.Join(parentDir, entry.Name())); err == nil {
+				isDir = info.IsDir()
+			}
+		}
+		if !isDir {
 			continue
 		}
 		hc, err := LoadHarnessConfigDir(filepath.Join(parentDir, entry.Name()))

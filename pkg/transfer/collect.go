@@ -75,13 +75,20 @@ func (b *ManifestBuilder) Build() (*Manifest, error) {
 func (b *ManifestBuilder) CollectFiles() ([]FileInfo, error) {
 	var files []FileInfo
 
-	err := filepath.WalkDir(b.BasePath, func(path string, d fs.DirEntry, err error) error {
+	// Resolve symlinks on the base path so that WalkDir can descend into
+	// directories that are themselves symlinks (e.g. stow-managed configs).
+	resolvedBase, err := filepath.EvalSymlinks(b.BasePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base path %s: %w", b.BasePath, err)
+	}
+
+	err = filepath.WalkDir(resolvedBase, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		// Get relative path
-		relPath, err := filepath.Rel(b.BasePath, path)
+		relPath, err := filepath.Rel(resolvedBase, path)
 		if err != nil {
 			return err
 		}
