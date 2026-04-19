@@ -17,7 +17,6 @@ package harness
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/api"
@@ -138,12 +137,12 @@ func TestPiResolveAuth_PreferenceOrder(t *testing.T) {
 
 func TestPiResolveAuth_NoCreds(t *testing.T) {
 	p := &Pi{}
-	_, err := p.ResolveAuth(api.AuthConfig{})
-	if err == nil {
-		t.Fatal("expected error for empty AuthConfig")
+	result, err := p.ResolveAuth(api.AuthConfig{})
+	if err != nil {
+		t.Fatalf("expected no error for empty AuthConfig (local models supported): %v", err)
 	}
-	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
-		t.Errorf("error should mention ANTHROPIC_API_KEY: %v", err)
+	if result.Method != "none" {
+		t.Errorf("expected method %q for no-creds case, got %q", "none", result.Method)
 	}
 }
 

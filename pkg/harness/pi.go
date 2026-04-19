@@ -180,5 +180,7 @@ func (p *Pi) ResolveAuth(auth api.AuthConfig) (*api.ResolvedAuth, error) {
 		}, nil
 	}
 
-	return nil, fmt.Errorf("pi: no valid auth method found; set ANTHROPIC_API_KEY or OPENAI_API_KEY, or provide auth credentials at ~/.pi/agent/auth.json")
+	// No credentials found — pi can still run with locally-configured models
+	// (e.g. via ~/.pi/agent/models.json pointing at a local oMLX/OpenAI-compat server).
+	return &api.ResolvedAuth{Method: "none"}, nil
 }
