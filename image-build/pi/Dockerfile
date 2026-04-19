@@ -23,4 +23,11 @@ RUN mkdir -p /home/scion/.pi/agent && \
 RUN npm install -g @mariozechner/pi-coding-agent \
   && npm cache clean --force
 
+# Clone pi-skills and pre-install JS dependencies for skills that require it
+RUN git clone --depth=1 https://github.com/badlogic/pi-skills /home/scion/.pi/agent/skills/pi-skills && \
+  cd /home/scion/.pi/agent/skills/pi-skills/brave-search && bun install && \
+  cd /home/scion/.pi/agent/skills/pi-skills/browser-tools && bun install && \
+  cd /home/scion/.pi/agent/skills/pi-skills/youtube-transcript && bun install && \
+  chown -R scion:scion /home/scion/.pi
+
 CMD ["pi"]
