@@ -23,6 +23,9 @@ RUN mkdir -p /home/scion/.pi/agent && \
 RUN npm install -g @mariozechner/pi-coding-agent \
   && npm cache clean --force
 
+# Install gccli, gdcli, gmcli globally (BUN_INSTALL=/usr/local puts binaries in /usr/local/bin)
+RUN BUN_INSTALL=/usr/local bun add -g @mariozechner/gccli @mariozechner/gdcli @mariozechner/gmcli
+
 # Clone pi-skills and pre-install JS dependencies for skills that require it
 RUN git clone --depth=1 https://github.com/badlogic/pi-skills /home/scion/.pi/agent/skills/pi-skills && \
   cd /home/scion/.pi/agent/skills/pi-skills/brave-search && bun install && \
