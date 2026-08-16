@@ -121,6 +121,29 @@ steps:
     env:
       - 'DOCKER_CLI_EXPERIMENTAL=enabled'
 
+  # Build Pi Harness Image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-scion-pi'
+    dir: 'image-build/pi'
+    args:
+      - 'buildx'
+      - 'build'
+      - '--platform'
+      - 'linux/amd64,linux/arm64'
+      - '--build-arg'
+      - 'BASE_IMAGE=$_REGISTRY/scion-base:latest'
+      - '-t'
+      - '$_REGISTRY/scion-pi:$_SHORT_SHA'
+      - '-t'
+      - '$_REGISTRY/scion-pi:latest'
+      - '-f'
+      - 'Dockerfile'
+      - '--pull'
+      - '--push'
+      - '.'
+    env:
+      - 'DOCKER_CLI_EXPERIMENTAL=enabled'
+
 substitutions:
   _REGISTRY: 'us-central1-docker.pkg.dev/${PROJECT_ID}/public-docker'
 options:

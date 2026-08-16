@@ -60,14 +60,12 @@ func (o *OpenCode) GetEnv(agentName string, agentHome string, unixUsername strin
 }
 
 func (o *OpenCode) GetCommand(task string, resume bool, baseArgs []string) []string {
-	args := []string{"opencode"}
+	args := []string{"opencode", "run"}
 	if resume {
 		args = append(args, "--continue")
-	} else {
-		args = append(args, "--prompt")
-		if task != "" {
-			args = append(args, task)
-		}
+	}
+	if task != "" {
+		args = append(args, task)
 	}
 
 	args = append(args, baseArgs...)

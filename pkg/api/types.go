@@ -376,6 +376,7 @@ type AuthConfig struct {
 	CodexAPIKey      string
 	CodexAuthFile    string
 	OpenCodeAuthFile string
+	PiAuthFile       string
 
 	// GCP metadata server mode ("block", "passthrough", "assign").
 	// When "assign", a GCP service account is available via the metadata
